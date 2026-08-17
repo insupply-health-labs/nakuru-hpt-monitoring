@@ -207,41 +207,90 @@ function DataCollection() {
 
     if (checked) {
       setFunding((prev) =>
-        prev.map((item) => ({ ...item, selected: false, amount: "" }))
+        prev.map((item) => ({
+          ...item,
+          selected: false,
+          amount: "",
+          detail: "",
+        }))
       );
+
       setCategories((prev) =>
-        prev.map((item) => ({ ...item, allocated: "", spent: "" }))
+        prev.map((item) => ({
+          ...item,
+          allocated: "",
+          spent: "",
+        }))
       );
+
+      setProcurement([]);
+      setDocument(null);
+
       updateField("amount_used_for_chp_kits", "");
       updateField("date_received", "");
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
-  e.preventDefault();
+    e.preventDefault();
 
-  const amountReceived = funding.reduce(
-  (total, item) =>
-    total + (item.selected ? Number(cleanNumber(item.amount)) : 0),
-  0
-);
+    const isNoFunds = form.no_funds_received;
 
-  if (amountReceived > 0 && !document) {
-    alert(
-      "A supporting document is required when the amount received is greater than zero."
+    const amountReceived = funding.reduce(
+      (total, item) =>
+        total +
+        (item.selected
+          ? Number(cleanNumber(item.amount))
+          : 0),
+      0
     );
-    return;
-  }
 
-  if (!form.declaration) {
-    alert("Please confirm the declaration before submitting.");
-    return;
-  }
+    if (!facilityMfl) {
+      alert("Please select a facility.");
+      return;
+    }
 
-  if (!form.no_funds_received && !form.date_received) {
-    alert("Please select the date received.");
-    return;
-  }
+    if (!form.reporting_month) {
+      alert("Please select the reporting month.");
+      return;
+    }
+
+    if (
+      !form.submitter_name.trim() ||
+      !form.submitter_phone.trim() ||
+      !form.submitter_designation.trim()
+    ) {
+      alert("Please complete all submitter details.");
+      return;
+    }
+
+    if (!form.declaration) {
+      alert("Please confirm the declaration before submitting.");
+      return;
+    }
+
+    // Normal funded submission validation
+    if (!isNoFunds) {
+      if (amountReceived <= 0) {
+        alert(
+          "Please enter the funding received, or select No funds received this month."
+        );
+        return;
+      }
+
+      if (!form.date_received) {
+        alert("Please select the date received.");
+        return;
+      }
+
+      if (!document) {
+        alert(
+          "A supporting document is required when funds were received."
+        );
+        return;
+      }
+
+    }
 
     try {
       setSubmitting(true);
@@ -249,10 +298,15 @@ function DataCollection() {
       const data = new FormData();
 
       data.append("mfl_code", facilityMfl);
-      data.append("amount_received", String(totalFunding));
+
+      data.append(
+        "amount_received",
+        isNoFunds ? "0" : String(totalFunding)
+      );
+
       data.append(
         "funding_source",
-        form.no_funds_received
+        isNoFunds
           ? "No Funds Received"
           : funding
               .filter((item) => item.selected)
@@ -273,51 +327,114 @@ function DataCollection() {
               })
               .join("; ")
       );
+
       const monthMap: Record<string, string> = {
-  January: "Jan",
-  February: "Feb",
-  March: "Mar",
-  April: "Apr",
-  May: "May",
-  June: "Jun",
-  July: "Jul",
-  August: "Aug",
-  September: "Sep",
-  October: "Oct",
-  November: "Nov",
-  December: "Dec",
-};
+        January: "Jan",
+        February: "Feb",
+        March: "Mar",
+        April: "Apr",
+        May: "May",
+        June: "Jun",
+        July: "Jul",
+        August: "Aug",
+        September: "Sep",
+        October: "Oct",
+        November: "Nov",
+        December: "Dec",
+      };
 
-const shortMonth =
-  monthMap[form.reporting_month] || form.reporting_month;
+      const shortMonth =
+        monthMap[form.reporting_month] ||
+        form.reporting_month;
 
-data.append(
-  "reporting_period",
-  `${shortMonth}-${form.reporting_year}`
-);
-      data.append("procurement_source", procurement.join(", "));
-      data.append("date_received", form.date_received);
-      data.append("amount_allocated_to_hpt", String(totalAllocatedToHpt));
-      data.append("amount_spent_on_hpt", String(totalSpentOnHpt));
       data.append(
-        "amount_used_for_chp_kits",
-        String(toNumber(form.amount_used_for_chp_kits))
-      );
-      data.append(
-        "submitted_by",
-        `${form.submitter_name} | ${form.submitter_phone} | ${form.submitter_designation}`
+        "reporting_period",
+        `${shortMonth}-${form.reporting_year}`
       );
 
-      if (document) {
-        data.append("supporting_document", document);
+      data.append(
+        "procurement_source",
+        isNoFunds
+          ? ""
+          : procurement.join(", ")
+      );
+
+      if (!isNoFunds) {
+        data.append(
+          "date_received",
+          form.date_received
+        );
       }
 
-      await api.post("/submit-record", data);
+      data.append(
+        "amount_allocated_to_hpt",
+        isNoFunds
+          ? "0"
+          : String(totalAllocatedToHpt)
+      );
 
-      alert("Record submitted successfully");
-    } catch (error) {
+      data.append(
+        "amount_spent_on_hpt",
+        isNoFunds
+          ? "0"
+          : String(totalSpentOnHpt)
+      );
+
+      data.append(
+        "amount_used_for_chp_kits",
+        isNoFunds
+          ? "0"
+          : String(
+              toNumber(
+                form.amount_used_for_chp_kits
+              )
+            )
+      );
+
+      const submittedBy = [
+        form.submitter_name,
+        form.submitter_phone,
+        form.submitter_designation,
+      ].join(" | ");
+
+      data.append(
+        "submitted_by",
+        submittedBy
+      );
+
+      data.append(
+        "submitter_phone",
+        form.submitter_phone
+      );
+
+      if (!isNoFunds && document) {
+        data.append(
+          "supporting_document",
+          document
+        );
+      }
+
+      await api.post(
+        "/submit-record",
+        data
+      );
+
+      alert(
+        isNoFunds
+          ? "No Funds Received report submitted successfully."
+          : "Record submitted successfully."
+      );
+    } catch (error: any) {
       console.error(error);
-      alert("Failed to submit record");
+
+      const detail =
+        error?.response?.data?.detail;
+
+      alert(
+        typeof detail === "string"
+          ? detail
+          : "Failed to submit record"
+      );
     } finally {
       setSubmitting(false);
     }
@@ -335,6 +452,8 @@ data.append(
           <h3>
             {step === 1
               ? "Step 1: Funding & HPT Information"
+              : form.no_funds_received
+              ? "Step 2: Submitter Details"
               : "Step 2: Supporting Documents & Submitter Details"}
           </h3>
           <span>Step {step} of 2</span>
@@ -661,11 +780,19 @@ data.append(
 
         {step === 2 && (
           <>
-            <div className="two-column-section">
-              <div>
-                <div className="section-title">
-                  <FileText size={18} />
-                  <span>Supporting Documents</span>
+            <div
+              className="two-column-section"
+              style={
+                form.no_funds_received
+                  ? { gridTemplateColumns: "1fr" }
+                  : undefined
+              }
+            >
+              {!form.no_funds_received && (
+                <div>
+                  <div className="section-title">
+                    <FileText size={18} />
+                    <span>Supporting Documents</span>
                 </div>
 
                 <div className="info-box warning">
@@ -695,7 +822,8 @@ data.append(
                     }
                   />
                 </label>
-              </div>
+                </div>
+              )}
 
               <div>
                 <div className="section-title">

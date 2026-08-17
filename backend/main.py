@@ -1011,7 +1011,7 @@ async def submit_record(
     funding_source: str = Form(...),
     reporting_period: str = Form(...),
     procurement_source: str = Form(""),
-    date_received: str = Form(...),
+    date_received: str = Form(""),
     amount_allocated_to_hpt: float = Form(...),
     amount_spent_on_hpt: float = Form(...),
     amount_used_for_chp_kits: float = Form(0),
