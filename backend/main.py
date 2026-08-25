@@ -1302,16 +1302,31 @@ def view_supporting_document(
         )
 
     if current_user.role == "facility":
-        facility_record = (
-            db.query(HPTRecord)
+        user_mfl = normalize_mfl_code(
+            current_user.facility_mfl_code
+        )
+
+        if not user_mfl:
+            raise HTTPException(
+                status_code=403,
+                detail="No facility is linked to this account.",
+            )
+
+        linked_facilities = (
+            db.query(HPTRecord.mfl_code)
             .filter(
                 HPTRecord.supporting_document_id
                 == document_id
             )
-            .first()
+            .all()
         )
 
-        if not facility_record:
+        has_access = any(
+            normalize_mfl_code(row[0]) == user_mfl
+            for row in linked_facilities
+        )
+
+        if not has_access:
             raise HTTPException(
                 status_code=403,
                 detail=(
@@ -1319,11 +1334,6 @@ def view_supporting_document(
                     "access this document."
                 ),
             )
-
-        enforce_facility_scope(
-            current_user,
-            facility_record.mfl_code,
-        )
 
     safe_filename = (
         document.original_filename

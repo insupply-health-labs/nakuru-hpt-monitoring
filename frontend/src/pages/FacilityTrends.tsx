@@ -235,7 +235,13 @@ function FacilityTrends() {
         event.key === "Escape" &&
         selectedDocumentUrl
       ) {
-        setSelectedDocumentUrl("");
+        setSelectedDocumentUrl((currentUrl) => {
+          if (currentUrl.startsWith("blob:")) {
+            URL.revokeObjectURL(currentUrl);
+          }
+
+          return "";
+        });
       }
     }
 
@@ -290,29 +296,64 @@ function FacilityTrends() {
     (record) => getReviewStatus(record) === "Rejected"
   );
 
-  function openDocument(path: string) {
+  async function openDocument(path: string) {
     if (!path) {
       return;
     }
 
-    if (/^https?:\/\//i.test(path)) {
-      setSelectedDocumentUrl(path);
-      return;
+    try {
+      const response = await api.get(path, {
+        responseType: "blob",
+      });
+
+      const contentType = String(
+        response.headers["content-type"] ||
+        "application/pdf"
+      );
+
+      const blob = new Blob(
+        [response.data],
+        { type: contentType }
+      );
+
+      const objectUrl = URL.createObjectURL(blob);
+
+      setSelectedDocumentUrl((currentUrl) => {
+        if (currentUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(currentUrl);
+        }
+
+        return objectUrl;
+      });
+    } catch (error: any) {
+      console.error(
+        "Failed to open supporting document:",
+        error
+      );
+
+      const status = error?.response?.status;
+
+      if (status === 401) {
+        alert(
+          "Your login session has expired. Please sign in again."
+        );
+        return;
+      }
+
+      if (status === 403) {
+        alert(
+          "You do not have permission to view this document."
+        );
+        return;
+      }
+
+      if (status === 404) {
+        alert("The supporting document could not be found.");
+        return;
+      }
+
+      alert("Unable to open the supporting document.");
     }
-
-    const baseUrl =
-      import.meta.env.VITE_API_BASE_URL ||
-      "http://localhost:8000";
-
-    const cleanBaseUrl = baseUrl.replace(/\/$/, "");
-
-    const documentPath = path.startsWith("/")
-      ? path
-      : `/${path}`;
-
-    setSelectedDocumentUrl(
-      `${cleanBaseUrl}${documentPath}`
-    );
   }
 
   async function replaceDocument(
