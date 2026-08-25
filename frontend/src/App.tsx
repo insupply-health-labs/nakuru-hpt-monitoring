@@ -6,6 +6,7 @@ import Submissions from "./pages/Submissions";
 import FacilityTrends from "./pages/FacilityTrends";
 import Register from "./pages/Register";
 import AdminUsers from "./pages/AdminUsers";
+import ProtectedRoute from "./components/auth/ProtectedRoute";
 
 import CountyDashboard from "./pages/CountyDashboard";
 import CountySHAReporting from "./pages/CountySHAReporting";
@@ -30,19 +31,77 @@ function App() {
         <Route path="/login" element={<Login />} />
 
         <Route element={<MainLayout />}>
-          <Route path="/dashboard" element={<CountyDashboard />} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={["county", "admin"]}>
+                <CountyDashboard />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/data-collection"
-            element={<DataCollection />}
+            element={
+              <ProtectedRoute allowedRoles={["facility", "admin"]}>
+                <DataCollection />
+              </ProtectedRoute>
+            }
           />
-          <Route path="/submissions" element={<Submissions />} />
+          <Route
+            path="/submissions"
+            element={
+              <ProtectedRoute allowedRoles={["county", "admin"]}>
+                <Submissions />
+              </ProtectedRoute>
+            }
+          />
           
-          <Route path="/users" element={<Placeholder title="Users" />} />
-          <Route path="/settings" element={<Placeholder title="Settings" />} />
-          <Route path="/facilities" element={<FacilityTrends />} />
-          <Route path="/county-sha-reporting" element={<CountySHAReporting />} />
-          <Route path="/sha-performance" element={<SHAPerformance />} />
-          <Route path="/admin/users" element={<AdminUsers />} />
+          <Route
+            path="/users"
+            element={<Navigate to="/admin/users" replace />}
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <Placeholder title="Settings" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/facilities"
+            element={
+              <ProtectedRoute
+                allowedRoles={["facility", "county", "admin"]}
+              >
+                <FacilityTrends />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/county-sha-reporting"
+            element={
+              <ProtectedRoute allowedRoles={["county", "admin"]}>
+                <CountySHAReporting />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/sha-performance"
+            element={
+              <ProtectedRoute allowedRoles={["county", "admin"]}>
+                <SHAPerformance />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/users"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <AdminUsers />
+              </ProtectedRoute>
+            }
+          />
           
           
         </Route>

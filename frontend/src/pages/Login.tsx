@@ -5,7 +5,6 @@ import api from "../api/api";
 import "./Login.css";
 
 function Login() {
-  const [role, setRole] = useState("facility");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -25,8 +24,15 @@ function Login() {
       }
 
       const user = res.data.user;
+      const accessToken = res.data.access_token;
+
+      if (!accessToken) {
+        alert("Login succeeded but no authentication token was returned.");
+        return;
+      }
 
       sessionStorage.setItem("hpt_user", JSON.stringify(user));
+      sessionStorage.setItem("hpt_token", accessToken);
 
       if (user.role === "facility") {
         navigate("/data-collection");
@@ -78,15 +84,6 @@ function Login() {
                 onClick={() => setShowPassword(!showPassword)}
                 style={{ cursor: "pointer" }}
               />
-            </div>
-
-            <div className="input-group">
-              <Users size={22} />
-              <select value={role} onChange={(e) => setRole(e.target.value)}>
-                <option value="facility">Facility User</option>
-                <option value="county">County / Sub County User</option>
-                <option value="admin">Admin</option>
-              </select>
             </div>
 
             <button className="sign-in-btn" onClick={handleLogin}>
@@ -141,7 +138,7 @@ function Login() {
 
         <footer>
           Secure • Confidential • Reliable <br />
-          © 2025 Nakuru County Health Department. All rights reserved.
+          © Nakuru County Health Department. All rights reserved.
         </footer>
       </div>
     </div>

@@ -61,8 +61,9 @@ if (role === "admin") {
 }
 
   function handleLogout() {
+    sessionStorage.removeItem("hpt_token");
     sessionStorage.removeItem("hpt_user");
-    navigate("/");
+    navigate("/login");
   }
 
   const initials =

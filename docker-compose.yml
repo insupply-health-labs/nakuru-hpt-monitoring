@@ -3,6 +3,8 @@ services:
     build:
       context: ./backend
     container_name: nakuru_hpt_backend
+    env_file:
+      - ./backend/.env
     ports:
       - "8000:8000"
     volumes:

@@ -16,6 +16,7 @@ from models import (
     User,
 )
 from auth import router as auth_router
+from security import get_current_user, require_roles
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import Response
 # Create any database tables that do not already exist.
@@ -385,6 +386,44 @@ def normalize_mfl_code(value) -> str:
     return text
 
 
+
+def enforce_facility_scope(
+    current_user: User,
+    requested_mfl_code: str,
+) -> None:
+    """
+    Facility users may only act on their own linked MFL code.
+    County/admin access is controlled separately by route roles.
+    """
+    if current_user.role != "facility":
+        return
+
+    user_mfl = normalize_mfl_code(
+        current_user.facility_mfl_code
+    )
+
+    requested_mfl = normalize_mfl_code(
+        requested_mfl_code
+    )
+
+    if not user_mfl:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "No facility is linked to this account."
+            ),
+        )
+
+    if user_mfl != requested_mfl:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "You may only access data for your "
+                "registered facility."
+            ),
+        )
+
+
 def get_joined_data(
     db: Session,
 ) -> pd.DataFrame:
@@ -441,6 +480,9 @@ def home():
 
 @app.get("/county-sha-reports")
 def get_county_sha_reports(
+    current_user: User = Depends(
+        require_roles("county", "admin")
+    ),
     db: Session = Depends(get_db),
 ):
     reports = (
@@ -510,6 +552,9 @@ def facilities():
 
 @app.get("/records")
 def records(
+    current_user: User = Depends(
+        require_roles("facility", "county", "admin")
+    ),
     db: Session = Depends(get_db),
 ):
     df = get_joined_data(db)
@@ -525,6 +570,9 @@ def county_dashboard(
     reporting_periods: str = "All",
     subcounties: str = "All",
     funding_sources: str = "All",
+    current_user: User = Depends(
+        require_roles("county", "admin")
+    ),
     db: Session = Depends(get_db),
 ):
     df = get_joined_data(db)
@@ -693,8 +741,19 @@ def county_dashboard(
 
 
 @app.get("/dashboard/facility/{mfl_code}")
-def facility_dashboard(mfl_code: str):
-    df = get_joined_data()
+def facility_dashboard(
+    mfl_code: str,
+    current_user: User = Depends(
+        require_roles("facility", "county", "admin")
+    ),
+    db: Session = Depends(get_db),
+):
+    enforce_facility_scope(
+        current_user,
+        mfl_code,
+    )
+
+    df = get_joined_data(db)
     df = df[df["mfl_code"].astype(str) == str(mfl_code)]
 
     if df.empty:
@@ -777,6 +836,9 @@ async def submit_county_sha_report(
     submitted_by: str = Form("SHA Coordinator"),
     notes: str = Form(""),
     supporting_document: UploadFile | None = File(None),
+    current_user: User = Depends(
+        require_roles("county", "admin")
+    ),
     db: Session = Depends(get_db),
 ):
     valid_report_types = {
@@ -1018,10 +1080,18 @@ async def submit_record(
     submitted_by: str = Form("facility_user"),
     submitter_phone: str = Form(""),
     supporting_document: UploadFile | None = File(None),
+    current_user: User = Depends(
+        require_roles("facility", "admin")
+    ),
     db: Session = Depends(get_db),
 ):
     normalized_mfl = normalize_mfl_code(
         mfl_code
+    )
+
+    enforce_facility_scope(
+        current_user,
+        normalized_mfl,
     )
 
     normalized_period = str(
@@ -1214,6 +1284,9 @@ async def submit_record(
 @app.get("/documents/{document_id}")
 def view_supporting_document(
     document_id: int,
+    current_user: User = Depends(
+        require_roles("facility", "county", "admin")
+    ),
     db: Session = Depends(get_db),
 ):
     document = (
@@ -1226,6 +1299,30 @@ def view_supporting_document(
         raise HTTPException(
             status_code=404,
             detail="Supporting document not found.",
+        )
+
+    if current_user.role == "facility":
+        facility_record = (
+            db.query(HPTRecord)
+            .filter(
+                HPTRecord.supporting_document_id
+                == document_id
+            )
+            .first()
+        )
+
+        if not facility_record:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "You do not have permission to "
+                    "access this document."
+                ),
+            )
+
+        enforce_facility_scope(
+            current_user,
+            facility_record.mfl_code,
         )
 
     safe_filename = (
@@ -1248,6 +1345,9 @@ def view_supporting_document(
 @app.patch("/records/review")
 def review_submission(
     payload: ReviewRecordRequest,
+    current_user: User = Depends(
+        require_roles("county", "admin")
+    ),
     db: Session = Depends(get_db),
 ):
     review_reason = payload.review_reason.strip()
@@ -1296,9 +1396,12 @@ def review_submission(
     )
 
     reviewed_by = (
-        payload.reviewed_by.strip()
-        or "county_reviewer"
-    )
+        f"{current_user.first_name} "
+        f"{current_user.last_name}"
+    ).strip()
+
+    if not reviewed_by:
+        reviewed_by = current_user.email
 
     reviewed_at = datetime.now()
 
@@ -1349,6 +1452,9 @@ async def replace_supporting_document(
     mfl_code: str = Form(...),
     reporting_period: str = Form(...),
     supporting_document: UploadFile = File(...),
+    current_user: User = Depends(
+        require_roles("facility", "admin")
+    ),
     db: Session = Depends(get_db),
 ):
     if (
@@ -1376,6 +1482,11 @@ async def replace_supporting_document(
 
     normalized_mfl = normalize_mfl_code(
         mfl_code
+    )
+
+    enforce_facility_scope(
+        current_user,
+        normalized_mfl,
     )
 
     normalized_period = str(

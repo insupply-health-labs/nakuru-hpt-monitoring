@@ -8,6 +8,7 @@ from passlib.context import CryptContext
 
 from database import get_db
 from models import User
+from security import create_access_token, get_current_user, require_roles
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -39,6 +40,18 @@ def verify_password(plain_password: str, hashed_password: str):
     return pwd_context.verify(plain_password, hashed_password)
 
 
+def normalize_mfl_code(value) -> str:
+    text = str(value or "").strip()
+
+    if text.lower() in {"", "none", "nan"}:
+        return ""
+
+    if text.endswith(".0"):
+        text = text[:-2]
+
+    return text
+
+
 @router.post("/register")
 def register_user(payload: RegisterRequest, db: Session = Depends(get_db)):
     existing_user = (
@@ -53,18 +66,46 @@ def register_user(payload: RegisterRequest, db: Session = Depends(get_db)):
             "message": "User already exists",
         }
 
-    # Prevent more than one account per facility
-    if payload.role == "facility" and payload.facility_mfl_code:
-        existing_facility_user = (
+    # Prevent more than one account per facility.
+    normalized_mfl = normalize_mfl_code(
+        payload.facility_mfl_code
+    )
+
+    if payload.role == "facility":
+        if not normalized_mfl:
+            return {
+                "success": False,
+                "message": (
+                    "A valid facility MFL code is required."
+                ),
+            }
+
+        facility_users = (
             db.query(User)
-            .filter(User.facility_mfl_code == payload.facility_mfl_code)
-            .first()
+            .filter(User.role == "facility")
+            .all()
+        )
+
+        existing_facility_user = next(
+            (
+                user
+                for user in facility_users
+                if normalize_mfl_code(
+                    user.facility_mfl_code
+                )
+                == normalized_mfl
+            ),
+            None,
         )
 
         if existing_facility_user:
             return {
                 "success": False,
-                "message": "This facility already has a registered account. Please contact the system administrator.",
+                "message": (
+                    "This facility already has a "
+                    "registered account. Please contact "
+                    "the system administrator."
+                ),
             }
 
     approved = payload.role == "facility"
@@ -75,7 +116,11 @@ def register_user(payload: RegisterRequest, db: Session = Depends(get_db)):
         email=payload.email.lower(),
         password_hash=hash_password(payload.password),
         role=payload.role,
-        facility_mfl_code=payload.facility_mfl_code,
+        facility_mfl_code=(
+            normalized_mfl
+            if payload.role == "facility"
+            else None
+        ),
         facility_name=payload.facility_name,
         subcounty_name=payload.subcounty_name,
         is_active=True,
@@ -103,14 +148,23 @@ def register_user(payload: RegisterRequest, db: Session = Depends(get_db)):
     }
 
 @router.post("/login")
-def login_user(payload: LoginRequest, db: Session = Depends(get_db)):
+def login_user(
+    payload: LoginRequest,
+    db: Session = Depends(get_db),
+):
     user = (
         db.query(User)
         .filter(User.email == payload.email.lower())
         .first()
     )
 
-    if not user:
+    if (
+        not user
+        or not verify_password(
+            payload.password,
+            user.password_hash,
+        )
+    ):
         return {
             "success": False,
             "message": "Invalid email or password",
@@ -121,66 +175,74 @@ def login_user(payload: LoginRequest, db: Session = Depends(get_db)):
             "success": False,
             "message": "Account is inactive",
         }
+
     if not user.is_approved:
         return {
             "success": False,
-            "message": "Account is pending approval by admin",
+            "message": (
+                "Account is pending approval by admin"
+            ),
         }
 
-    if not verify_password(payload.password, user.password_hash):
-        return {
-            "success": False,
-            "message": "Invalid email or password",
-        }
+    access_token = create_access_token(
+        user.user_id
+    )
 
     return {
         "success": True,
         "message": "Login successful",
+        "access_token": access_token,
+        "token_type": "bearer",
         "user": {
             "user_id": user.user_id,
             "first_name": user.first_name,
             "last_name": user.last_name,
             "email": user.email,
             "role": user.role,
-            "facility_mfl_code": user.facility_mfl_code,
+            "facility_mfl_code": (
+                user.facility_mfl_code
+            ),
             "facility_name": user.facility_name,
-            "subcounty_name": user.subcounty_name,
+            "subcounty_name": (
+                user.subcounty_name
+            ),
             "is_active": user.is_active,
         },
     }
-@router.post("/login")
-def login_user(login_data: LoginRequest, db: Session = Depends(get_db)):
 
-    user = db.query(User).filter(
-        User.email == login_data.email
-    ).first()
 
-    if not user:
-        return {
-            "success": False,
-            "message": "Invalid email or password"
-        }
-
-    if not user.is_approved:
-        return {
-            "success": False,
-            "message": "Your account is awaiting administrator approval."
-        }
-
-    if not verify_password(login_data.password, user.password_hash):
-        return {
-            "success": False,
-            "message": "Invalid email or password"
-        }
-
+@router.get("/me")
+def get_my_account(
+    current_user: User = Depends(
+        get_current_user
+    ),
+):
     return {
-        "success": True,
-        "user": user
+        "user_id": current_user.user_id,
+        "first_name": current_user.first_name,
+        "last_name": current_user.last_name,
+        "email": current_user.email,
+        "role": current_user.role,
+        "facility_mfl_code": (
+            current_user.facility_mfl_code
+        ),
+        "facility_name": (
+            current_user.facility_name
+        ),
+        "subcounty_name": (
+            current_user.subcounty_name
+        ),
+        "is_active": current_user.is_active,
     }
 
 
 @router.get("/users")
-def get_users(db: Session = Depends(get_db)):
+def get_users(
+    current_user: User = Depends(
+        require_roles("admin")
+    ),
+    db: Session = Depends(get_db),
+):
     users = db.query(User).order_by(User.created_at.desc()).all()
 
     return [
@@ -200,7 +262,13 @@ def get_users(db: Session = Depends(get_db)):
         for user in users
     ]
 @router.put("/users/{user_id}/approve")
-def approve_user(user_id: int, db: Session = Depends(get_db)):
+def approve_user(
+    user_id: int,
+    current_user: User = Depends(
+        require_roles("admin")
+    ),
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.user_id == user_id).first()
 
     if not user:
@@ -213,7 +281,13 @@ def approve_user(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/users/{user_id}/deactivate")
-def deactivate_user(user_id: int, db: Session = Depends(get_db)):
+def deactivate_user(
+    user_id: int,
+    current_user: User = Depends(
+        require_roles("admin")
+    ),
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.user_id == user_id).first()
 
     if not user:
@@ -226,7 +300,13 @@ def deactivate_user(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/users/{user_id}/activate")
-def activate_user(user_id: int, db: Session = Depends(get_db)):
+def activate_user(
+    user_id: int,
+    current_user: User = Depends(
+        require_roles("admin")
+    ),
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.user_id == user_id).first()
 
     if not user:
@@ -237,7 +317,13 @@ def activate_user(user_id: int, db: Session = Depends(get_db)):
 
     return {"success": True, "message": "User activated successfully"}
 @router.delete("/users/{user_id}/delete")
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+def delete_user(
+    user_id: int,
+    current_user: User = Depends(
+        require_roles("admin")
+    ),
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.user_id == user_id).first()
 
     if not user:
