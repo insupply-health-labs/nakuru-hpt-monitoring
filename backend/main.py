@@ -174,6 +174,48 @@ def parse_reporting_period_sort(value):
     return pd.NaT
 
 
+
+def normalize_financial_year(value: str) -> str:
+    text = str(value or "").strip()
+
+    parts = text.split("/")
+
+    if len(parts) != 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Financial year must use the format YYYY/YYYY.",
+        )
+
+    try:
+        start_year = int(parts[0])
+        end_year = int(parts[1])
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Financial year must use the format YYYY/YYYY.",
+        )
+
+    if end_year != start_year + 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Financial year must contain consecutive years.",
+        )
+
+    return f"{start_year}/{end_year}"
+
+
+def normalize_reporting_quarter(value: str) -> str:
+    quarter = str(value or "").strip().upper()
+
+    if quarter not in {"Q1", "Q2", "Q3", "Q4"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Reporting quarter must be Q1, Q2, Q3, or Q4.",
+        )
+
+    return quarter
+
+
 def load_hpt_records(db: Session) -> pd.DataFrame:
     records = (
         db.query(HPTRecord)
@@ -1071,7 +1113,8 @@ async def submit_record(
     mfl_code: str = Form(...),
     amount_received: float = Form(...),
     funding_source: str = Form(...),
-    reporting_period: str = Form(...),
+    financial_year: str = Form(...),
+    reporting_quarter: str = Form(...),
     procurement_source: str = Form(""),
     date_received: str = Form(""),
     amount_allocated_to_hpt: float = Form(...),
@@ -1094,9 +1137,17 @@ async def submit_record(
         normalized_mfl,
     )
 
-    normalized_period = str(
-        reporting_period
-    ).strip()
+    normalized_financial_year = normalize_financial_year(
+        financial_year
+    )
+
+    normalized_quarter = normalize_reporting_quarter(
+        reporting_quarter
+    )
+
+    normalized_period = (
+        f"{normalized_financial_year} {normalized_quarter}"
+    )
 
     if not normalized_mfl:
         raise HTTPException(
@@ -1104,18 +1155,14 @@ async def submit_record(
             detail="A valid MFL code is required.",
         )
 
-    if not normalized_period:
-        raise HTTPException(
-            status_code=400,
-            detail="Reporting period is required.",
-        )
-
     existing_record = (
         db.query(HPTRecord)
         .filter(
             HPTRecord.mfl_code == normalized_mfl,
-            HPTRecord.reporting_period
-            == normalized_period,
+            HPTRecord.financial_year
+            == normalized_financial_year,
+            HPTRecord.reporting_quarter
+            == normalized_quarter,
         )
         .first()
     )
@@ -1125,8 +1172,8 @@ async def submit_record(
             status_code=409,
             detail=(
                 "This facility has already submitted "
-                "a record for the selected reporting "
-                "period."
+                "a record for the selected financial "
+                "year and quarter."
             ),
         )
 
@@ -1186,6 +1233,8 @@ async def submit_record(
         record = HPTRecord(
             mfl_code=normalized_mfl,
             reporting_period=normalized_period,
+            financial_year=normalized_financial_year,
+            reporting_quarter=normalized_quarter,
             amount_received=amount_received,
             funding_source=funding_source.strip(),
             procurement_source=(

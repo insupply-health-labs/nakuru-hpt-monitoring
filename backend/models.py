@@ -104,6 +104,16 @@ class HPTRecord(Base):
         index=True,
     )
 
+    financial_year = Column(
+        String(20),
+        nullable=True,
+    )
+
+    reporting_quarter = Column(
+        String(2),
+        nullable=True,
+    )
+
     amount_received = Column(
         Float,
         nullable=False,
