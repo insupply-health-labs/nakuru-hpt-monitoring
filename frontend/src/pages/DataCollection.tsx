@@ -13,9 +13,22 @@ import api from "../api/api";
 import "./DataCollection.css";
 
 function formatNumber(value: string) {
-  const raw = value.replace(/,/g, "").replace(/[^\d]/g, "");
+  const raw = value
+    .replace(/,/g, "")
+    .replace(/[^\d.]/g, "");
+
   if (!raw) return "";
-  return Number(raw).toLocaleString();
+
+  const parts = raw.split(".");
+  const whole = parts[0] || "0";
+  const decimal = parts.slice(1).join("");
+
+  const formattedWhole =
+    Number(whole).toLocaleString();
+
+  return raw.includes(".")
+    ? `${formattedWhole}.${decimal}`
+    : formattedWhole;
 }
 
 function cleanNumber(value: string) {
@@ -36,12 +49,11 @@ interface Facility {
 }
 
 const fundingSources = [
-  "County Allocation",
-  "FIF",
   "SHIF",
   "PHC",
   "Partners",
   "Monetary Donations",
+  "Cash (Out of Pocket)",
 ];
 
 const procurementSources = ["KEMSA", "MEDS", "Prequalified Suppliers"];
@@ -61,15 +73,22 @@ function DataCollection() {
 
   const [step, setStep] = useState(1);
   const [facilities, setFacilities] = useState<Facility[]>([]);
-  const [document, setDocument] = useState<File | null>(null);
+  const [documents, setDocuments] = useState<File[]>([]);
+  const [previewFile, setPreviewFile] = useState<{
+    file: File;
+    url: string;
+  } | null>(null);
  
   const [submitting, setSubmitting] = useState(false);
   const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  const financialYearStart =
+    currentMonth >= 7 ? currentYear : currentYear - 1;
 
   const [form, setForm] = useState({
     mfl_code: "",
-    reporting_year: String(currentYear),
-    reporting_month: "",
+    financial_year: `${financialYearStart}/${financialYearStart + 1}`,
+    reporting_quarter: "",
     no_funds_received: false,
     date_received: "",
     amount_used_for_chp_kits: "",
@@ -224,7 +243,7 @@ function DataCollection() {
       );
 
       setProcurement([]);
-      setDocument(null);
+      setDocuments([]);
 
       updateField("amount_used_for_chp_kits", "");
       updateField("date_received", "");
@@ -250,8 +269,8 @@ function DataCollection() {
       return;
     }
 
-    if (!form.reporting_month) {
-      alert("Please select the reporting month.");
+    if (!form.reporting_quarter) {
+      alert("Please select the reporting quarter.");
       return;
     }
 
@@ -273,7 +292,7 @@ function DataCollection() {
     if (!isNoFunds) {
       if (amountReceived <= 0) {
         alert(
-          "Please enter the funding received, or select No funds received this month."
+          "Please enter the funding received, or select No funds received this quarter."
         );
         return;
       }
@@ -283,9 +302,9 @@ function DataCollection() {
         return;
       }
 
-      if (!document) {
+      if (documents.length === 0) {
         alert(
-          "A supporting document is required when funds were received."
+          "At least one supporting document is required when funds were received."
         );
         return;
       }
@@ -328,28 +347,14 @@ function DataCollection() {
               .join("; ")
       );
 
-      const monthMap: Record<string, string> = {
-        January: "Jan",
-        February: "Feb",
-        March: "Mar",
-        April: "Apr",
-        May: "May",
-        June: "Jun",
-        July: "Jul",
-        August: "Aug",
-        September: "Sep",
-        October: "Oct",
-        November: "Nov",
-        December: "Dec",
-      };
-
-      const shortMonth =
-        monthMap[form.reporting_month] ||
-        form.reporting_month;
+      data.append(
+        "financial_year",
+        form.financial_year
+      );
 
       data.append(
-        "reporting_period",
-        `${shortMonth}-${form.reporting_year}`
+        "reporting_quarter",
+        form.reporting_quarter
       );
 
       data.append(
@@ -407,11 +412,13 @@ function DataCollection() {
         form.submitter_phone
       );
 
-      if (!isNoFunds && document) {
-        data.append(
-          "supporting_document",
-          document
-        );
+      if (!isNoFunds) {
+        documents.forEach((document) => {
+          data.append(
+            "supporting_documents",
+            document
+          );
+        });
       }
 
       await api.post(
@@ -507,18 +514,18 @@ function DataCollection() {
               </div>
 
               <div className="form-group">
-                <label>Reporting Year</label>
+                <label>Financial Year</label>
                 <select
-                  value={form.reporting_year}
+                  value={form.financial_year}
                   onChange={(e) =>
-                    updateField("reporting_year", e.target.value)
+                    updateField("financial_year", e.target.value)
                   }
                   required
                 >
-                  {[currentYear - 1, currentYear, currentYear + 1].map(
+                  {[financialYearStart - 1, financialYearStart, financialYearStart + 1].map(
                     (year) => (
-                      <option key={year} value={year}>
-                        {year}
+                      <option key={year} value={`${year}/${year + 1}`}>
+                        {year}/{year + 1}
                       </option>
                     )
                   )}
@@ -526,31 +533,19 @@ function DataCollection() {
               </div>
 
               <div className="form-group">
-                <label>Reporting Month</label>
+                <label>Reporting Quarter</label>
                 <select
-                  value={form.reporting_month}
+                  value={form.reporting_quarter}
                   onChange={(e) =>
-                    updateField("reporting_month", e.target.value)
+                    updateField("reporting_quarter", e.target.value)
                   }
                   required
                 >
-                  <option value="">Select month</option>
-                  {[
-                    "January",
-                    "February",
-                    "March",
-                    "April",
-                    "May",
-                    "June",
-                    "July",
-                    "August",
-                    "September",
-                    "October",
-                    "November",
-                    "December",
-                  ].map((month) => (
-                    <option key={month}>{month}</option>
-                  ))}
+                  <option value="">Select quarter</option>
+                  <option value="Q1">Q1 (Jul-Sep)</option>
+                  <option value="Q2">Q2 (Oct-Dec)</option>
+                  <option value="Q3">Q3 (Jan-Mar)</option>
+                  <option value="Q4">Q4 (Apr-Jun)</option>
                 </select>
               </div>
 
@@ -561,7 +556,7 @@ function DataCollection() {
                     checked={form.no_funds_received}
                     onChange={(e) => handleNoFundsChange(e.target.checked)}
                   />
-                  No funds received this month
+                  No funds received this quarter
                 </label>
               </div>
 
@@ -583,8 +578,8 @@ function DataCollection() {
             </div>
 
             <p className="helper-text">
-              For County Allocation, enter the Allocated Amount. For SHIF, PHC,
-              FIF, Partners and Donations, enter the Approved Amount (AIE).
+              For SHIF, PHC, Partners and Donations, enter the Approved Amount (AIE).
+              For Cash (Out of Pocket), enter the amount received.
             </p>
 
             <div className="funding-layout">
@@ -797,7 +792,7 @@ function DataCollection() {
 
                 <div className="info-box warning">
                   <div>
-                    <strong>PDF files only</strong>
+                    <strong>Multiple files allowed</strong>
                     <p>Examples of required supporting documents:</p>
                     <ul>
                       <li>Allocation Drawing Rights (ADR)</li>
@@ -811,17 +806,92 @@ function DataCollection() {
                 <label className="upload-box">
                   <Upload size={28} />
                   <span>
-                    {document ? document.name : "Choose PDF supporting document"}
+                    Add supporting documents
                   </span>
+                  <small>
+                    PDF, JPG, JPEG or PNG
+                  </small>
                   <input
                     type="file"
-                    accept="application/pdf"
+                    accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                    multiple
                     hidden
-                    onChange={(e) =>
-                      setDocument(e.target.files?.[0] || null)
-                    }
+                    onChange={(e) => {
+                      const selectedFiles = Array.from(
+                        e.target.files || []
+                      );
+
+                      const validFiles = selectedFiles.filter(
+                        (file) =>
+                          file.type === "application/pdf" ||
+                          file.type === "image/jpeg" ||
+                          file.type === "image/png"
+                      );
+
+                      if (validFiles.length !== selectedFiles.length) {
+                        alert(
+                          "Only PDF, JPG, JPEG and PNG files are allowed."
+                        );
+                      }
+
+                      setDocuments((prev) => [
+                        ...prev,
+                        ...validFiles,
+                      ]);
+
+                      e.target.value = "";
+                    }}
                   />
                 </label>
+
+                {documents.length > 0 && (
+                  <div className="uploaded-documents">
+                    {documents.map((file, index) => (
+                      <div
+                        className="uploaded-document-row"
+                        key={`${file.name}-${file.size}-${index}`}
+                      >
+                        <FileText size={18} />
+
+                        <span>{file.name}</span>
+
+                        <button
+                          type="button"
+                          className="document-view-btn"
+                          onClick={() => {
+                            if (previewFile) {
+                              URL.revokeObjectURL(
+                                previewFile.url
+                              );
+                            }
+
+                            setPreviewFile({
+                              file,
+                              url: URL.createObjectURL(file),
+                            });
+                          }}
+                        >
+                          View
+                        </button>
+
+                        <button
+                          type="button"
+                          className="document-delete-btn"
+                          onClick={() =>
+                            setDocuments((prev) =>
+                              prev.filter(
+                                (_, fileIndex) =>
+                                  fileIndex !== index
+                              )
+                            )
+                          }
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 </div>
               )}
 
@@ -912,6 +982,50 @@ function DataCollection() {
           </>
         )}
       </form>
+
+      {previewFile && (
+        <div
+          className="document-preview-overlay"
+          onClick={() => {
+            URL.revokeObjectURL(previewFile.url);
+            setPreviewFile(null);
+          }}
+        >
+          <div
+            className="document-preview-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="document-preview-header">
+              <strong>{previewFile.file.name}</strong>
+
+              <button
+                type="button"
+                onClick={() => {
+                  URL.revokeObjectURL(previewFile.url);
+                  setPreviewFile(null);
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="document-preview-content">
+              {previewFile.file.type ===
+              "application/pdf" ? (
+                <iframe
+                  src={previewFile.url}
+                  title={previewFile.file.name}
+                />
+              ) : (
+                <img
+                  src={previewFile.url}
+                  alt={previewFile.file.name}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+        )}
     </div>
   );
 }

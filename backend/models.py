@@ -75,6 +75,26 @@ class SupportingDocument(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+
+class HPTRecordDocument(Base):
+    __tablename__ = "hpt_record_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    record_id = Column(
+        Integer,
+        ForeignKey("hpt_records.record_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    document_id = Column(
+        Integer,
+        ForeignKey("supporting_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+
+
 class HPTRecord(Base):
     __tablename__ = "hpt_records"
 

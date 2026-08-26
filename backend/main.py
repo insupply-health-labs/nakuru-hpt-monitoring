@@ -11,6 +11,7 @@ from fastapi import Depends
 from database import Base, engine, get_db
 from models import (
     HPTRecord,
+    HPTRecordDocument,
     SHAReport,
     SupportingDocument,
     User,
@@ -65,6 +66,20 @@ REQUIRED_HPT_PERCENT = 40
 REQUIRED_CHP_KIT_PERCENT_OF_HPT = 5
 
 MAX_DOCUMENT_SIZE = 10 * 1024 * 1024  # 10 MB
+
+ALLOWED_HPT_DOCUMENT_EXTENSIONS = {
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+}
+
+HPT_DOCUMENT_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+}
 
 ALLOWED_SHA_DOCUMENT_EXTENSIONS = {
     ".pdf",
@@ -238,6 +253,7 @@ def load_hpt_records(db: Session) -> pd.DataFrame:
         "amount_used_for_chp_kits",
         "supporting_document_id",
         "supporting_document",
+        "supporting_documents",
         "submitted_by",
         "submitter_phone",
         "submission_date",
@@ -251,9 +267,58 @@ def load_hpt_records(db: Session) -> pd.DataFrame:
     data = []
 
     for record in records:
+        linked_documents = (
+            db.query(SupportingDocument)
+            .join(
+                HPTRecordDocument,
+                HPTRecordDocument.document_id
+                == SupportingDocument.id,
+            )
+            .filter(
+                HPTRecordDocument.record_id
+                == record.record_id
+            )
+            .order_by(SupportingDocument.id.asc())
+            .all()
+        )
+
+        supporting_documents = [
+            {
+                "id": document.id,
+                "name": document.original_filename,
+                "url": f"/documents/{document.id}",
+                "content_type": document.content_type,
+            }
+            for document in linked_documents
+        ]
+
+        # Legacy fallback
+        if (
+            not supporting_documents
+            and record.supporting_document_id
+        ):
+            legacy_document = (
+                db.query(SupportingDocument)
+                .filter(
+                    SupportingDocument.id
+                    == record.supporting_document_id
+                )
+                .first()
+            )
+
+            if legacy_document:
+                supporting_documents = [
+                    {
+                        "id": legacy_document.id,
+                        "name": legacy_document.original_filename,
+                        "url": f"/documents/{legacy_document.id}",
+                        "content_type": legacy_document.content_type,
+                    }
+                ]
+
         document_url = (
-            f"/documents/{record.supporting_document_id}"
-            if record.supporting_document_id
+            supporting_documents[0]["url"]
+            if supporting_documents
             else ""
         )
 
@@ -280,6 +345,7 @@ def load_hpt_records(db: Session) -> pd.DataFrame:
                     record.supporting_document_id or ""
                 ),
                 "supporting_document": document_url,
+                "supporting_documents": supporting_documents,
                 "submitted_by": record.submitted_by or "",
                 "submitter_phone": record.submitter_phone or "",
                 "submission_date": format_database_datetime(
@@ -1122,7 +1188,7 @@ async def submit_record(
     amount_used_for_chp_kits: float = Form(0),
     submitted_by: str = Form("facility_user"),
     submitter_phone: str = Form(""),
-    supporting_document: UploadFile | None = File(None),
+    supporting_documents: list[UploadFile] | None = File(None),
     current_user: User = Depends(
         require_roles("facility", "admin")
     ),
@@ -1178,20 +1244,21 @@ async def submit_record(
         )
 
     try:
-        supporting_document_id = None
+        supporting_document_ids = []
 
-        if (
-            supporting_document
-            and supporting_document.filename
-        ):
-            if (
-                supporting_document.content_type
-                != "application/pdf"
-            ):
+        for supporting_document in supporting_documents or []:
+            if not supporting_document.filename:
+                continue
+
+            original_filename = supporting_document.filename.strip()
+            file_extension = Path(original_filename).suffix.lower()
+
+            if file_extension not in ALLOWED_HPT_DOCUMENT_EXTENSIONS:
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        "Only PDF documents are allowed."
+                        "Only PDF, JPG, JPEG and PNG files "
+                        "are allowed."
                     ),
                 )
 
@@ -1200,25 +1267,24 @@ async def submit_record(
             if not file_bytes:
                 raise HTTPException(
                     status_code=400,
-                    detail="The uploaded PDF is empty.",
+                    detail=(
+                        f"{original_filename} is empty."
+                    ),
                 )
 
             if len(file_bytes) > MAX_DOCUMENT_SIZE:
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        "The PDF must not exceed 10 MB."
+                        f"{original_filename} must not exceed 10 MB."
                     ),
                 )
 
             document = SupportingDocument(
-                original_filename=(
-                    supporting_document.filename
-                    or "supporting_document.pdf"
-                ),
+                original_filename=original_filename,
                 content_type=(
                     supporting_document.content_type
-                    or "application/pdf"
+                    or HPT_DOCUMENT_CONTENT_TYPES[file_extension]
                 ),
                 file_size=len(file_bytes),
                 file_data=file_bytes,
@@ -1228,7 +1294,13 @@ async def submit_record(
             db.add(document)
             db.flush()
 
-            supporting_document_id = document.id
+            supporting_document_ids.append(document.id)
+
+        supporting_document_id = (
+            supporting_document_ids[0]
+            if supporting_document_ids
+            else None
+        )
 
         record = HPTRecord(
             mfl_code=normalized_mfl,
@@ -1261,6 +1333,16 @@ async def submit_record(
         )
 
         db.add(record)
+        db.flush()
+
+        for document_id in supporting_document_ids:
+            db.add(
+                HPTRecordDocument(
+                    record_id=record.record_id,
+                    document_id=document_id,
+                )
+            )
+
         db.commit()
         db.refresh(record)
 
@@ -1363,12 +1445,27 @@ def view_supporting_document(
 
         linked_facilities = (
             db.query(HPTRecord.mfl_code)
+            .join(
+                HPTRecordDocument,
+                HPTRecordDocument.record_id
+                == HPTRecord.record_id,
+            )
             .filter(
-                HPTRecord.supporting_document_id
+                HPTRecordDocument.document_id
                 == document_id
             )
             .all()
         )
+
+        if not linked_facilities:
+            linked_facilities = (
+                db.query(HPTRecord.mfl_code)
+                .filter(
+                    HPTRecord.supporting_document_id
+                    == document_id
+                )
+                .all()
+            )
 
         has_access = any(
             normalize_mfl_code(row[0]) == user_mfl
