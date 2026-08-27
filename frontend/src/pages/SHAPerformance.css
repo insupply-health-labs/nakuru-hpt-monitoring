@@ -237,3 +237,36 @@
     grid-template-columns: 1fr;
   }
 }
+
+.sha-performance-header {
+  border-left: 5px solid #467C9E;
+  padding-left: 16px;
+}
+
+.sha-performance-header h2 {
+  color: #467C9E;
+}
+
+.sha-performance-kpi {
+  border-top: 4px solid #467C9E;
+}
+
+.sha-performance-kpi:nth-child(3) {
+  border-top-color: #E73846;
+  background: rgba(231, 56, 70, 0.04);
+}
+
+.sha-download-button {
+  border-color: #467C9E;
+  color: #467C9E;
+  font-weight: 600;
+}
+
+.sha-download-button:hover {
+  background: rgba(70, 124, 158, 0.08);
+}
+
+.sha-evidence-list button {
+  color: #467C9E;
+  font-weight: 600;
+}

@@ -395,3 +395,58 @@
     width: 100%;
   }
 }
+
+/* SHA brand visibility */
+.facility-sha-heading {
+  border-left: 5px solid #467C9E;
+  padding-left: 16px;
+}
+
+.facility-sha-heading h3 {
+  color: #467C9E;
+}
+
+.facility-sha-amount-box::before {
+  background: #467C9E;
+}
+
+.facility-sha-amount-box:nth-child(2)::before {
+  background: #467C9E;
+}
+
+.facility-sha-amount-box:nth-child(3)::before {
+  background: #E73846;
+}
+
+.facility-sha-amount-box:nth-child(3) {
+  border-color: rgba(231, 56, 70, 0.3);
+  background: rgba(231, 56, 70, 0.04);
+}
+
+.facility-sha-upload {
+  border-color: rgba(70, 124, 158, 0.55);
+  background: rgba(70, 124, 158, 0.05);
+}
+
+.facility-sha-upload:hover {
+  border-color: #467C9E;
+  background: rgba(70, 124, 158, 0.1);
+}
+
+.facility-sha-upload svg {
+  color: #467C9E;
+}
+
+.facility-sha-actions button {
+  background: #467C9E;
+}
+
+.facility-sha-actions button:hover:not(:disabled) {
+  background: #386781;
+}
+
+.facility-sha-doc-list button {
+  border-color: rgba(70, 124, 158, 0.35);
+  background: rgba(70, 124, 158, 0.08);
+  color: #467C9E;
+}

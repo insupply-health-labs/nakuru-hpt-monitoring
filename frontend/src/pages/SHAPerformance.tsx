@@ -730,18 +730,24 @@ function SHAPerformance() {
                   type="monotone"
                   dataKey="claims"
                   name="Claims"
+                  stroke="#1C3557"
+                  strokeWidth={3}
                 />
 
                 <Line
                   type="monotone"
                   dataKey="reimbursements"
                   name="Reimbursements"
+                  stroke="#467C9E"
+                  strokeWidth={3}
                 />
 
                 <Line
                   type="monotone"
                   dataKey="rejections"
                   name="Rejections"
+                  stroke="#E73846"
+                  strokeWidth={3}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -784,16 +790,19 @@ function SHAPerformance() {
                 <Bar
                   dataKey="claims"
                   name="Claims"
+                  fill="#1C3557"
                 />
 
                 <Bar
                   dataKey="reimbursements"
                   name="Reimbursements"
+                  fill="#467C9E"
                 />
 
                 <Bar
                   dataKey="rejections"
                   name="Rejections"
+                  fill="#E73846"
                 />
               </BarChart>
             </ResponsiveContainer>

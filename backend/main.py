@@ -1586,9 +1586,6 @@ async def submit_county_sha_report(
 ):
     valid_report_types = {
         "SHA Contracted Facilities",
-        "SHA Claims",
-        "SHA Reimbursements",
-        "SHA Rejections",
     }
 
     cleaned_report_type = report_type.strip()

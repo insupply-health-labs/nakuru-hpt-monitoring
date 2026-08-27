@@ -4,7 +4,6 @@ import {
   ClipboardList,
   FileText,
   Building2,
-  Settings,
   LogOut,
   BarChart3,
   Users,
@@ -53,10 +52,10 @@ if (role === "admin") {
     { label: "Data Collection", path: "/data-collection", icon: ClipboardList },
     { label: "Submissions", path: "/submissions", icon: FileText },
     { label: "Facility Trends", path: "/facilities", icon: Building2 },
+    { label: "SHA Reporting", path: "/facility-sha-reporting", icon: BarChart3 },
     { label: "County SHA Reporting", path: "/county-sha-reporting", icon: BarChart3 },
     { label: "SHA Performance", path: "/sha-performance", icon: BarChart3 },
-    { label: "User Management", path: "/admin/users", icon: Users },
-    { label: "Settings", path: "/settings", icon: Settings }
+    { label: "User Management", path: "/admin/users", icon: Users }
     
   );
 }
