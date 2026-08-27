@@ -57,6 +57,8 @@ interface FacilityCompliance {
   required_chp_kits_percent_of_hpt: number;
   chp_kits_status: string;
   reporting_period: string;
+  financial_year?: string;
+  reporting_quarter?: string;
 }
 
 const FUNDING_SOURCE_OPTIONS = [
@@ -68,21 +70,7 @@ const FUNDING_SOURCE_OPTIONS = [
   "Donations",
 ];
 
-const MONTHS = [
-  "All",
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
+const QUARTERS = ["Q1", "Q2", "Q3", "Q4"];
 
 const MONTH_ORDER: Record<string, number> = {
   Jan: 1,
@@ -132,9 +120,38 @@ function parseReportingPeriod(period: string) {
 }
 
 function getReportingPeriodRank(period?: string) {
-  const { month, year } = parseReportingPeriod(String(period || ""));
+  const text = String(period || "").trim();
+
+  const quarterlyMatch = text.match(
+    /^(\d{4})\/(\d{4})\s+(Q[1-4])$/
+  );
+
+  if (quarterlyMatch) {
+    const startYear = Number(quarterlyMatch[1]);
+    const endYear = Number(quarterlyMatch[2]);
+    const quarter = quarterlyMatch[3];
+
+    const ranks: Record<string, number> = {
+      Q1: startYear * 100 + 7,
+      Q2: startYear * 100 + 10,
+      Q3: endYear * 100 + 1,
+      Q4: endYear * 100 + 4,
+    };
+
+    return ranks[quarter] || 0;
+  }
+
+  const { month, year } = parseReportingPeriod(text);
 
   return Number(year || 0) * 100 + Number(MONTH_ORDER[month] || 0);
+}
+
+function getFacilityPeriod(facility: FacilityCompliance) {
+  if (facility.financial_year && facility.reporting_quarter) {
+    return `${facility.financial_year} ${facility.reporting_quarter}`;
+  }
+
+  return facility.reporting_period || "Unknown";
 }
 
 function matchesFundingSource(
@@ -223,8 +240,10 @@ function CountyDashboard() {
   const [selectedFacility, setSelectedFacility] = useState<string[]>([
     "All",
   ]);
-  const [selectedYear, setSelectedYear] = useState<string[]>(["All"]);
-  const [selectedMonth, setSelectedMonth] = useState<string[]>(["All"]);
+  const [selectedFinancialYear, setSelectedFinancialYear] =
+    useState<string[]>(["All"]);
+  const [selectedQuarter, setSelectedQuarter] =
+    useState<string[]>(["All"]);
   const [selectedFundingSource, setSelectedFundingSource] = useState<
     string[]
   >(["All"]);
@@ -308,27 +327,29 @@ function CountyDashboard() {
     ).sort((a, b) => a.localeCompare(b)),
   ];
 
-  const currentYear = new Date().getFullYear();
-
-  const years = [
+  const financialYears = [
     "All",
     ...Array.from(
-      { length: currentYear - 2026 + 6 },
-      (_, index) => String(2026 + index)
-    ),
+      new Set(
+        facilities
+          .map((facility) =>
+            String(facility.financial_year || "").trim()
+          )
+          .filter(Boolean)
+      )
+    ).sort(),
   ];
 
   const activeSubcounties = withoutAll(selectedSubcounty);
   const activeWards = withoutAll(selectedWard);
   const activeFacilities = withoutAll(selectedFacility);
-  const activeYears = withoutAll(selectedYear);
-  const activeMonths = withoutAll(selectedMonth);
+  const activeFinancialYears = withoutAll(selectedFinancialYear);
+  const activeQuarters = withoutAll(selectedQuarter);
   const activeFundingSources = withoutAll(selectedFundingSource);
 
   const filteredFacilities = facilities.filter((facility) => {
     const mflCode = normalizeMflCode(facility.mfl_code);
     const facilityLabel = `${facility.facility_name} - ${mflCode}`;
-    const { month, year } = parseReportingPeriod(facility.reporting_period);
     const fundingSourceText = String(
       facility.funding_source || ""
     ).toLowerCase();
@@ -345,11 +366,17 @@ function CountyDashboard() {
       activeFacilities.length === 0 ||
       activeFacilities.includes(facilityLabel);
 
-    const matchesYear =
-      activeYears.length === 0 || activeYears.includes(year);
+    const matchesFinancialYear =
+      activeFinancialYears.length === 0 ||
+      activeFinancialYears.includes(
+        String(facility.financial_year || "")
+      );
 
-    const matchesMonth =
-      activeMonths.length === 0 || activeMonths.includes(month);
+    const matchesQuarter =
+      activeQuarters.length === 0 ||
+      activeQuarters.includes(
+        String(facility.reporting_quarter || "")
+      );
 
     const matchesFunding = matchesFundingSource(
       facility.funding_source,
@@ -377,8 +404,8 @@ function CountyDashboard() {
       matchesSubcounty &&
       matchesWard &&
       matchesFacility &&
-      matchesYear &&
-      matchesMonth &&
+      matchesFinancialYear &&
+      matchesQuarter &&
       matchesFunding &&
       matchesSearch
     );
@@ -393,8 +420,8 @@ function CountyDashboard() {
 
     if (
       !currentRecord ||
-      getReportingPeriodRank(facility.reporting_period) >
-        getReportingPeriodRank(currentRecord.reporting_period)
+      getReportingPeriodRank(getFacilityPeriod(facility)) >
+        getReportingPeriodRank(getFacilityPeriod(currentRecord))
     ) {
       latestFacilityMap.set(facilityKey, facility);
     }
@@ -478,10 +505,7 @@ function CountyDashboard() {
         acc: Record<string, Record<string, string | number>>,
         facility
       ) => {
-        const { month, year } = parseReportingPeriod(
-          facility.reporting_period
-        );
-        const period = month && year ? `${month}-${year}` : "Unknown";
+        const period = getFacilityPeriod(facility);
 
         if (!acc[period]) {
           acc[period] = { reporting_period: period };
@@ -500,10 +524,10 @@ function CountyDashboard() {
       {}
     )
   ).sort((a: any, b: any) => {
-    const [m1, y1] = a.reporting_period.split("-");
-    const [m2, y2] = b.reporting_period.split("-");
-
-    return Number(y1) - Number(y2) || MONTH_ORDER[m1] - MONTH_ORDER[m2];
+    return (
+      getReportingPeriodRank(a.reporting_period) -
+      getReportingPeriodRank(b.reporting_period)
+    );
   });
 
   const hptAllocationChartData = Object.values(
@@ -521,10 +545,7 @@ function CountyDashboard() {
         >,
         facility
       ) => {
-        const { month, year } = parseReportingPeriod(
-          facility.reporting_period
-        );
-        const period = month && year ? `${month}-${year}` : "Unknown";
+        const period = getFacilityPeriod(facility);
 
         if (!acc[period]) {
           acc[period] = {
@@ -550,10 +571,10 @@ function CountyDashboard() {
       {}
     )
   ).sort((a, b) => {
-    const [m1, y1] = a.reporting_period.split("-");
-    const [m2, y2] = b.reporting_period.split("-");
-
-    return Number(y1) - Number(y2) || MONTH_ORDER[m1] - MONTH_ORDER[m2];
+    return (
+      getReportingPeriodRank(a.reporting_period) -
+      getReportingPeriodRank(b.reporting_period)
+    );
   });
 
   const totalPages = Math.max(
@@ -663,21 +684,21 @@ function CountyDashboard() {
         />
 
         <MultiCheckboxFilter
-          label="Year"
-          options={years.filter((item) => item !== "All")}
-          selected={selectedYear}
+          label="Financial Year"
+          options={financialYears.filter((item) => item !== "All")}
+          selected={selectedFinancialYear}
           onChange={(values) => {
-            setSelectedYear(values);
+            setSelectedFinancialYear(values);
             setPage(1);
           }}
         />
 
         <MultiCheckboxFilter
-          label="Month"
-          options={MONTHS.filter((item) => item !== "All")}
-          selected={selectedMonth}
+          label="Quarter"
+          options={QUARTERS}
+          selected={selectedQuarter}
           onChange={(values) => {
-            setSelectedMonth(values);
+            setSelectedQuarter(values);
             setPage(1);
           }}
         />

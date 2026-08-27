@@ -222,9 +222,24 @@ class HPTRecord(Base):
 class SHAReport(Base):
     __tablename__ = "sha_reports"
 
+    __table_args__ = (
+        UniqueConstraint(
+            "mfl_code",
+            "report_type",
+            "reporting_period",
+            name="uq_sha_facility_type_period",
+        ),
+    )
+
     report_id = Column(
         Integer,
         primary_key=True,
+        index=True,
+    )
+
+    mfl_code = Column(
+        String(50),
+        nullable=True,
         index=True,
     )
 
@@ -242,6 +257,12 @@ class SHAReport(Base):
     reporting_year = Column(
         String(10),
         nullable=False,
+        index=True,
+    )
+
+    financial_year = Column(
+        String(20),
+        nullable=True,
         index=True,
     )
 
@@ -289,4 +310,39 @@ class SHAReport(Base):
     submitted_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
+    )
+
+class SHAReportDocument(Base):
+    __tablename__ = "sha_report_documents"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "report_id",
+            "document_id",
+            name="uq_sha_report_document",
+        ),
+    )
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    report_id = Column(
+        Integer,
+        ForeignKey(
+            "sha_reports.report_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+
+    document_id = Column(
+        Integer,
+        ForeignKey(
+            "supporting_documents.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
     )

@@ -1,0 +1,121 @@
+.facility-sha-trends-card {
+  margin-top: 20px;
+  padding: 20px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.facility-sha-trends-heading h3,
+.facility-sha-trends-card h3 {
+  margin: 0 0 6px;
+}
+
+.facility-sha-trends-heading p {
+  margin: 0 0 18px;
+  color: #64748b;
+}
+
+.facility-sha-trends-kpis {
+  display: grid;
+  grid-template-columns:
+    repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.facility-sha-trends-kpis > div {
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.facility-sha-trends-kpis span {
+  display: block;
+  color: #64748b;
+  margin-bottom: 7px;
+}
+
+.facility-sha-trends-kpis strong {
+  font-size: 18px;
+}
+
+.facility-sha-trends-chart {
+  width: 100%;
+}
+
+.facility-sha-trends-table {
+  overflow-x: auto;
+}
+
+.facility-sha-trends-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.facility-sha-trends-table th,
+.facility-sha-trends-table td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+.facility-sha-trend-documents {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.facility-sha-trend-documents button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.facility-sha-trend-preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 9999;
+}
+
+.facility-sha-trend-preview {
+  width: min(900px, 95vw);
+  height: min(750px, 90vh);
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.facility-sha-trend-preview-header {
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.facility-sha-trend-preview iframe,
+.facility-sha-trend-preview img {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  object-fit: contain;
+}
+
+@media (max-width: 700px) {
+  .facility-sha-trends-kpis {
+    grid-template-columns: 1fr;
+  }
+}

@@ -12,8 +12,9 @@ interface Submission {
   facility_name: string;
   subcounty_name: string;
   ward_name: string;
-  reporting_month?: string;
   reporting_period: string;
+  financial_year?: string;
+  reporting_quarter?: string;
   funding_source: string;
 
   // The formatter supports any of these possible backend field names.
@@ -60,39 +61,8 @@ const fundingSources = [
   "Donor Funding",
 ];
 
-const months = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
-
 function money(value: number) {
   return `KES ${Number(value || 0).toLocaleString()}`;
-}
-
-function parseReportingPeriod(period: string) {
-  const parts = String(period || "").split("-");
-
-  if (parts.length !== 2) {
-    return { month: "", year: "" };
-  }
-
-  const [first, second] = parts;
-
-  if (/^\d{4}$/.test(first)) {
-    return { year: first, month: second };
-  }
-
-  return { month: first, year: second };
 }
 
 function canonicalFundingSource(source: string) {
@@ -193,8 +163,10 @@ function Submissions() {
   const [selectedSubcounty, setSelectedSubcounty] = useState<string[]>(["All"]);
   const [selectedWard, setSelectedWard] = useState<string[]>(["All"]);
   const [selectedFacility, setSelectedFacility] = useState<string[]>(["All"]);
-  const [selectedYear, setSelectedYear] = useState<string[]>(["All"]);
-  const [selectedMonth, setSelectedMonth] = useState<string[]>(["All"]);
+  const [selectedFinancialYear, setSelectedFinancialYear] =
+    useState<string[]>(["All"]);
+  const [selectedQuarter, setSelectedQuarter] =
+    useState<string[]>(["All"]);
   const [selectedFundingSource, setSelectedFundingSource] = useState<string[]>([
     "All",
   ]);
@@ -210,15 +182,20 @@ const [rejectionReason, setRejectionReason] = useState("");
 const [reviewError, setReviewError] = useState("");
 const [reviewSaving, setReviewSaving] = useState(false);
 
-  const currentYear = new Date().getFullYear();
+  const financialYears = useMemo(() => {
+    return [
+      "All",
+      ...Array.from(
+        new Set(
+          records
+            .map((record) => String(record.financial_year || "").trim())
+            .filter(Boolean)
+        )
+      ).sort(),
+    ];
+  }, [records]);
 
-  const years = [
-    "All",
-    ...Array.from(
-      { length: currentYear - 2026 + 6 },
-      (_, index) => String(2026 + index)
-    ),
-  ];
+  const quarters = ["Q1", "Q2", "Q3", "Q4"];
 
   useEffect(() => {
     api
@@ -276,7 +253,6 @@ const [reviewSaving, setReviewSaving] = useState(false);
 
   const filteredRecords = useMemo(() => {
     return records.filter((record) => {
-      const { month, year } = parseReportingPeriod(record.reporting_period);
       const facilityLabel = `${record.facility_name} - ${record.mfl_code}`;
       const searchValue = search.trim().toLowerCase();
       const fundingSourceText = formatFundingSource(record).toLowerCase();
@@ -317,11 +293,17 @@ const [reviewSaving, setReviewSaving] = useState(false);
         selectedFacility.includes("All") ||
         selectedFacility.includes(facilityLabel);
 
-      const matchesYear =
-        selectedYear.includes("All") || selectedYear.includes(year);
+      const matchesFinancialYear =
+        selectedFinancialYear.includes("All") ||
+        selectedFinancialYear.includes(
+          String(record.financial_year || "")
+        );
 
-      const matchesMonth =
-        selectedMonth.includes("All") || selectedMonth.includes(month);
+      const matchesQuarter =
+        selectedQuarter.includes("All") ||
+        selectedQuarter.includes(
+          String(record.reporting_quarter || "")
+        );
 
       const matchesFundingSource =
         selectedFundingSource.includes("All") ||
@@ -334,8 +316,8 @@ const [reviewSaving, setReviewSaving] = useState(false);
         matchesSubcounty &&
         matchesWard &&
         matchesFacility &&
-        matchesYear &&
-        matchesMonth &&
+        matchesFinancialYear &&
+        matchesQuarter &&
         matchesFundingSource
       );
     });
@@ -345,8 +327,8 @@ const [reviewSaving, setReviewSaving] = useState(false);
     selectedSubcounty,
     selectedWard,
     selectedFacility,
-    selectedYear,
-    selectedMonth,
+    selectedFinancialYear,
+    selectedQuarter,
     selectedFundingSource,
   ]);
 
@@ -603,17 +585,17 @@ setReviewSaving(true);
           />
 
           <MultiCheckboxFilter
-            label="Year"
-            options={years.filter((item) => item !== "All")}
-            selected={selectedYear}
-            onChange={setSelectedYear}
+            label="Financial Year"
+            options={financialYears.filter((item) => item !== "All")}
+            selected={selectedFinancialYear}
+            onChange={setSelectedFinancialYear}
           />
 
           <MultiCheckboxFilter
-            label="Month"
-            options={months}
-            selected={selectedMonth}
-            onChange={setSelectedMonth}
+            label="Quarter"
+            options={quarters}
+            selected={selectedQuarter}
+            onChange={setSelectedQuarter}
           />
 
           <MultiCheckboxFilter
@@ -708,7 +690,11 @@ setReviewSaving(true);
 
                       <td>{record.subcounty_name || "—"}</td>
                       <td>{record.ward_name || "—"}</td>
-                      <td>{record.reporting_period || "—"}</td>
+                      <td>
+                        {record.financial_year && record.reporting_quarter
+                          ? `${record.financial_year} ${record.reporting_quarter}`
+                          : record.reporting_period || "—"}
+                      </td>
                       <td>{formatFundingSource(record)}</td>
                       <td>{record.procurement_source || "—"}</td>
                       <td>{record.date_received || "—"}</td>

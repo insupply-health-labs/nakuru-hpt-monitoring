@@ -4,6 +4,7 @@ import DataCollection from "./pages/DataCollection";
 import MainLayout from "./components/layout/MainLayout";
 import Submissions from "./pages/Submissions";
 import FacilityTrends from "./pages/FacilityTrends";
+import FacilitySHAReporting from "./pages/FacilitySHAReporting";
 import Register from "./pages/Register";
 import AdminUsers from "./pages/AdminUsers";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
@@ -68,6 +69,15 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/facility-sha-reporting"
+            element={
+              <ProtectedRoute allowedRoles={["facility", "admin"]}>
+                <FacilitySHAReporting />
+              </ProtectedRoute>
+            }
+          />
+
           <Route
             path="/facilities"
             element={

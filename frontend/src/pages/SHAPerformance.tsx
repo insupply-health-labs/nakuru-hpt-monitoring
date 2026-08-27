@@ -2,22 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
   Building2,
-  CheckCircle,
   Download,
   FileText,
   Search,
-  XCircle,
+  Wallet,
 } from "lucide-react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -27,431 +23,496 @@ import api from "../api/api";
 import MultiCheckboxFilter from "../components/MultiCheckboxFilter";
 import "./SHAPerformance.css";
 
-interface SHAReport {
-  report_id: string;
-  report_type: string;
-  frequency: string;
-  reporting_year: string;
-  reporting_month: string;
-  reporting_quarter: string;
-  reporting_period: string;
-  value: number;
-  submitted_by: string;
-  notes: string;
-  supporting_document: string;
-  submitted_at: string;
+interface SHADocument {
+  id: number;
+  name: string;
+  url: string;
+  content_type?: string;
 }
 
-interface MonthlyTrendRow {
-  key: string;
-  month: string;
+interface SHAFacilityRecord {
+  mfl_code: string;
+  facility_name: string;
+  subcounty_name: string;
+  ward_name: string;
+  financial_year: string;
+  reporting_quarter: string;
+  reporting_period: string;
   claims: number;
   reimbursements: number;
   rejections: number;
+  supporting_documents: SHADocument[];
 }
 
-interface ContractedTrendRow {
-  key: string;
-  quarter: string;
-  facilities: number;
-}
+const QUARTERS = ["Q1", "Q2", "Q3", "Q4"];
 
-const reportTypes = [
-  "SHA Contracted Facilities",
-  "SHA Claims",
-  "SHA Reimbursements",
-  "SHA Rejections",
-];
-
-const months = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
-
-const quarters = ["Q1", "Q2", "Q3", "Q4"];
-
-const MONTH_ORDER = new Map(
-  months.map((month, index) => [month, index + 1])
-);
-
-const QUARTER_ORDER = new Map(
-  quarters.map((quarter, index) => [quarter, index + 1])
-);
+const QUARTER_ORDER: Record<string, number> = {
+  Q1: 1,
+  Q2: 2,
+  Q3: 3,
+  Q4: 4,
+};
 
 function money(value: number) {
   return `KES ${Number(value || 0).toLocaleString()}`;
 }
 
 function compactMoney(value: number) {
-  const numericValue = Number(value || 0);
+  const amount = Number(value || 0);
 
-  if (Math.abs(numericValue) >= 1_000_000) {
-    return `${(numericValue / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(amount) >= 1_000_000) {
+    return `${(amount / 1_000_000).toFixed(1)}M`;
   }
 
-  if (Math.abs(numericValue) >= 1_000) {
-    return `${(numericValue / 1_000).toFixed(1)}K`;
+  if (Math.abs(amount) >= 1_000) {
+    return `${(amount / 1_000).toFixed(1)}K`;
   }
 
-  return numericValue.toLocaleString();
+  return amount.toLocaleString();
 }
 
-function getSubmittedAtRank(value: string) {
-  if (!value) return 0;
-
-  const parsed = Date.parse(value.replace(" ", "T"));
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function getReportPeriodRank(report: SHAReport) {
-  const year = Number(report.reporting_year || 0);
-
-  if (report.report_type === "SHA Contracted Facilities") {
-    const quarter = QUARTER_ORDER.get(report.reporting_quarter) || 0;
-    return year * 100 + quarter * 3;
-  }
-
-  const month = MONTH_ORDER.get(report.reporting_month) || 0;
-  return year * 100 + month;
-}
-
-function getLatestReport(
-  reports: SHAReport[],
-  reportType: string
-): SHAReport | undefined {
-  return reports
-    .filter((report) => report.report_type === reportType)
-    .slice()
-    .sort((a, b) => {
-      const periodDifference = getReportPeriodRank(b) - getReportPeriodRank(a);
-
-      if (periodDifference !== 0) {
-        return periodDifference;
-      }
-
-      const submittedDifference =
-        getSubmittedAtRank(b.submitted_at) -
-        getSubmittedAtRank(a.submitted_at);
-
-      if (submittedDifference !== 0) {
-        return submittedDifference;
-      }
-
-      return Number(b.report_id || 0) - Number(a.report_id || 0);
-    })[0];
+function withoutAll(values: string[]) {
+  return values.filter((value) => value !== "All");
 }
 
 function SHAPerformance() {
-  const currentYear = new Date().getFullYear();
-
-  const [reports, setReports] = useState<SHAReport[]>([]);
+  const [records, setRecords] = useState<SHAFacilityRecord[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [selectedFinancialYear, setSelectedFinancialYear] =
+    useState<string[]>(["All"]);
+
+  const [selectedQuarter, setSelectedQuarter] =
+    useState<string[]>(["All"]);
+
+  const [selectedSubcounty, setSelectedSubcounty] =
+    useState<string[]>(["All"]);
+
+  const [selectedFacility, setSelectedFacility] =
+    useState<string[]>(["All"]);
+
   const [search, setSearch] = useState("");
 
-  const [selectedDocument, setSelectedDocument] =
-    useState<string | null>(null);
-  const [selectedDocumentTitle, setSelectedDocumentTitle] = useState("");
-
-  const [selectedReportType, setSelectedReportType] = useState<string[]>([
-    "All",
-  ]);
-  const [selectedYear, setSelectedYear] = useState<string[]>(["All"]);
-  const [selectedMonth, setSelectedMonth] = useState<string[]>(["All"]);
-  const [selectedQuarter, setSelectedQuarter] = useState<string[]>(["All"]);
-  const [selectedSubmittedBy, setSelectedSubmittedBy] = useState<string[]>([
-    "All",
-  ]);
-
-  const years = [
-    "All",
-    ...Array.from({ length: currentYear - 2026 + 6 }, (_, index) =>
-      String(2026 + index)
-    ),
-  ];
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewType, setPreviewType] = useState("");
+  const [previewName, setPreviewName] = useState("");
 
   useEffect(() => {
     api
-      .get("/county-sha-reports")
-      .then((res) => {
-        setReports(Array.isArray(res.data) ? res.data : []);
+      .get("/sha-performance/facilities")
+      .then((response) => {
+        setRecords(response.data?.records || []);
       })
-      .catch((err) => {
-        console.error(err);
-        setReports([]);
+      .catch((error) => {
+        console.error(error);
+        setRecords([]);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const submittedByOptions = useMemo(() => {
+  const financialYears = useMemo(() => {
     return [
       "All",
       ...Array.from(
         new Set(
-          reports
-            .map((report) => report.submitted_by)
-            .filter((name) => name && name.trim() !== "")
+          records
+            .map((record) =>
+              String(record.financial_year || "").trim()
+            )
+            .filter(Boolean)
         )
-      ).sort((a, b) => a.localeCompare(b)),
+      ).sort(),
     ];
-  }, [reports]);
+  }, [records]);
 
-  const filteredReports = useMemo(() => {
-    const searchValue = search.toLowerCase();
+  const subcounties = useMemo(() => {
+    return [
+      "All",
+      ...Array.from(
+        new Set(
+          records
+            .map((record) =>
+              String(record.subcounty_name || "").trim()
+            )
+            .filter(Boolean)
+        )
+      ).sort(),
+    ];
+  }, [records]);
 
-    return reports.filter((report) => {
-      const matchesReportType =
-        selectedReportType.includes("All") ||
-        selectedReportType.includes(report.report_type);
+  const facilityOptions = useMemo(() => {
+    const activeSubcounties = withoutAll(
+      selectedSubcounty
+    );
 
-      const matchesYear =
-        selectedYear.includes("All") ||
-        selectedYear.includes(String(report.reporting_year));
+    return [
+      "All",
+      ...Array.from(
+        new Set(
+          records
+            .filter(
+              (record) =>
+                activeSubcounties.length === 0 ||
+                activeSubcounties.includes(
+                  record.subcounty_name
+                )
+            )
+            .map(
+              (record) =>
+                `${record.facility_name} - ${record.mfl_code}`
+            )
+            .filter(Boolean)
+        )
+      ).sort(),
+    ];
+  }, [records, selectedSubcounty]);
 
-      const matchesMonth =
-        selectedMonth.includes("All") ||
-        selectedMonth.includes(report.reporting_month);
+  const filteredRecords = useMemo(() => {
+    const activeFinancialYears = withoutAll(
+      selectedFinancialYear
+    );
+
+    const activeQuarters = withoutAll(
+      selectedQuarter
+    );
+
+    const activeSubcounties = withoutAll(
+      selectedSubcounty
+    );
+
+    const activeFacilities = withoutAll(
+      selectedFacility
+    );
+
+    const searchValue = search.trim().toLowerCase();
+
+    return records.filter((record) => {
+      const facilityLabel =
+        `${record.facility_name} - ${record.mfl_code}`;
+
+      const matchesFinancialYear =
+        activeFinancialYears.length === 0 ||
+        activeFinancialYears.includes(
+          record.financial_year
+        );
 
       const matchesQuarter =
-        selectedQuarter.includes("All") ||
-        selectedQuarter.includes(report.reporting_quarter);
+        activeQuarters.length === 0 ||
+        activeQuarters.includes(
+          record.reporting_quarter
+        );
 
-      const matchesSubmittedBy =
-        selectedSubmittedBy.includes("All") ||
-        selectedSubmittedBy.includes(report.submitted_by);
+      const matchesSubcounty =
+        activeSubcounties.length === 0 ||
+        activeSubcounties.includes(
+          record.subcounty_name
+        );
+
+      const matchesFacility =
+        activeFacilities.length === 0 ||
+        activeFacilities.includes(
+          facilityLabel
+        );
 
       const matchesSearch =
         searchValue === "" ||
-        report.report_type?.toLowerCase().includes(searchValue) ||
-        report.reporting_period?.toLowerCase().includes(searchValue) ||
-        report.submitted_by?.toLowerCase().includes(searchValue) ||
-        report.notes?.toLowerCase().includes(searchValue);
+        record.facility_name
+          ?.toLowerCase()
+          .includes(searchValue) ||
+        record.mfl_code
+          ?.toLowerCase()
+          .includes(searchValue) ||
+        record.subcounty_name
+          ?.toLowerCase()
+          .includes(searchValue) ||
+        record.ward_name
+          ?.toLowerCase()
+          .includes(searchValue) ||
+        record.reporting_period
+          ?.toLowerCase()
+          .includes(searchValue);
 
       return (
-        matchesReportType &&
-        matchesYear &&
-        matchesMonth &&
+        matchesFinancialYear &&
         matchesQuarter &&
-        matchesSubmittedBy &&
+        matchesSubcounty &&
+        matchesFacility &&
         matchesSearch
       );
     });
   }, [
-    reports,
-    search,
-    selectedReportType,
-    selectedYear,
-    selectedMonth,
+    records,
+    selectedFinancialYear,
     selectedQuarter,
-    selectedSubmittedBy,
+    selectedSubcounty,
+    selectedFacility,
+    search,
   ]);
 
   const summary = useMemo(() => {
-    const contracted = getLatestReport(reports, "SHA Contracted Facilities");
-    const claims = getLatestReport(reports, "SHA Claims");
-    const reimbursements = getLatestReport(reports, "SHA Reimbursements");
-    const rejections = getLatestReport(reports, "SHA Rejections");
+    const totalClaims = filteredRecords.reduce(
+      (sum, record) =>
+        sum + Number(record.claims || 0),
+      0
+    );
+
+    const totalReimbursements = filteredRecords.reduce(
+      (sum, record) =>
+        sum + Number(record.reimbursements || 0),
+      0
+    );
+
+    const totalRejections = filteredRecords.reduce(
+      (sum, record) =>
+        sum + Number(record.rejections || 0),
+      0
+    );
+
+    const facilitiesSubmitted = new Set(
+      filteredRecords.map(
+        (record) => record.mfl_code
+      )
+    ).size;
+
+    const reimbursementRate =
+      totalClaims > 0
+        ? (
+            (totalReimbursements / totalClaims) *
+            100
+          ).toFixed(1)
+        : "0.0";
+
+    const rejectionRate =
+      totalClaims > 0
+        ? (
+            (totalRejections / totalClaims) *
+            100
+          ).toFixed(1)
+        : "0.0";
 
     return {
-      contractedFacilities: Number(contracted?.value || 0),
-      claims: Number(claims?.value || 0),
-      reimbursements: Number(reimbursements?.value || 0),
-      rejections: Number(rejections?.value || 0),
-      contractedPeriod: contracted?.reporting_period || "No data yet",
-      claimsPeriod: claims?.reporting_period || "No data yet",
-      reimbursementsPeriod: reimbursements?.reporting_period || "No data yet",
-      rejectionsPeriod: rejections?.reporting_period || "No data yet",
+      totalClaims,
+      totalReimbursements,
+      totalRejections,
+      facilitiesSubmitted,
+      reimbursementRate,
+      rejectionRate,
     };
-  }, [reports]);
+  }, [filteredRecords]);
 
-  const monthlyTrend = useMemo<MonthlyTrendRow[]>(() => {
-    const trendMap = new Map<string, MonthlyTrendRow & Record<string, unknown>>();
-    const latestSubmissionMap = new Map<string, number>();
+  const quarterlyTrend = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        period: string;
+        financial_year: string;
+        quarter: string;
+        claims: number;
+        reimbursements: number;
+        rejections: number;
+      }
+    >();
 
-    reports
-      .filter((report) => report.report_type !== "SHA Contracted Facilities")
-      .forEach((report) => {
-        const year = String(report.reporting_year || "").trim();
-        const month = String(report.reporting_month || "").trim();
-        const monthNumber = MONTH_ORDER.get(month);
+    filteredRecords.forEach((record) => {
+      const key = record.reporting_period;
 
-        if (!year || !monthNumber) return;
-
-        const periodKey = `${year}-${String(monthNumber).padStart(2, "0")}`;
-        const valueKey = `${periodKey}-${report.report_type}`;
-        const submittedRank =
-          getSubmittedAtRank(report.submitted_at) || Number(report.report_id || 0);
-        const existingRank = latestSubmissionMap.get(valueKey) ?? -1;
-
-        if (submittedRank < existingRank) return;
-
-        latestSubmissionMap.set(valueKey, submittedRank);
-
-        if (!trendMap.has(periodKey)) {
-          trendMap.set(periodKey, {
-            key: periodKey,
-            month: `${month} ${year}`,
-            claims: 0,
-            reimbursements: 0,
-            rejections: 0,
-          });
-        }
-
-        const row = trendMap.get(periodKey)!;
-        const numericValue = Number(report.value || 0);
-
-        if (report.report_type === "SHA Claims") {
-          row.claims = numericValue;
-        } else if (report.report_type === "SHA Reimbursements") {
-          row.reimbursements = numericValue;
-        } else if (report.report_type === "SHA Rejections") {
-          row.rejections = numericValue;
-        }
-      });
-
-    return Array.from(trendMap.values())
-      .sort((a, b) => a.key.localeCompare(b.key))
-      .map(({ key, month, claims, reimbursements, rejections }) => ({
-        key,
-        month,
-        claims,
-        reimbursements,
-        rejections,
-      }));
-  }, [reports]);
-
-  const contractedTrend = useMemo<ContractedTrendRow[]>(() => {
-    const trendMap = new Map<string, ContractedTrendRow>();
-    const latestSubmissionMap = new Map<string, number>();
-
-    reports
-      .filter((report) => report.report_type === "SHA Contracted Facilities")
-      .forEach((report) => {
-        const year = String(report.reporting_year || "").trim();
-        const quarter = String(report.reporting_quarter || "").trim();
-        const quarterNumber = QUARTER_ORDER.get(quarter);
-
-        if (!year || !quarterNumber) return;
-
-        const periodKey = `${year}-Q${quarterNumber}`;
-        const submittedRank =
-          getSubmittedAtRank(report.submitted_at) || Number(report.report_id || 0);
-        const existingRank = latestSubmissionMap.get(periodKey) ?? -1;
-
-        if (submittedRank < existingRank) return;
-
-        latestSubmissionMap.set(periodKey, submittedRank);
-        trendMap.set(periodKey, {
-          key: periodKey,
-          quarter: `${quarter} ${year}`,
-          facilities: Number(report.value || 0),
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          period: record.reporting_period,
+          financial_year:
+            record.financial_year,
+          quarter:
+            record.reporting_quarter,
+          claims: 0,
+          reimbursements: 0,
+          rejections: 0,
         });
-      });
+      }
 
-    return Array.from(trendMap.values()).sort((a, b) =>
-      a.key.localeCompare(b.key)
+      const row = grouped.get(key)!;
+
+      row.claims += Number(
+        record.claims || 0
+      );
+
+      row.reimbursements += Number(
+        record.reimbursements || 0
+      );
+
+      row.rejections += Number(
+        record.rejections || 0
+      );
+    });
+
+    return Array.from(grouped.values()).sort(
+      (a, b) => {
+        const yearDifference =
+          a.financial_year.localeCompare(
+            b.financial_year
+          );
+
+        if (yearDifference !== 0) {
+          return yearDifference;
+        }
+
+        return (
+          (QUARTER_ORDER[a.quarter] || 0) -
+          (QUARTER_ORDER[b.quarter] || 0)
+        );
+      }
     );
-  }, [reports]);
+  }, [filteredRecords]);
 
-  const rejectionPie = useMemo(() => {
-    const reimbursed = Number(summary.reimbursements || 0);
-    const rejected = Number(summary.rejections || 0);
-    const total = reimbursed + rejected;
+  const subcountyData = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        subcounty: string;
+        claims: number;
+        reimbursements: number;
+        rejections: number;
+      }
+    >();
 
-    if (total <= 0) {
-      return [
-        { name: "Reimbursed", value: 0 },
-        { name: "Rejected", value: 0 },
-      ];
+    filteredRecords.forEach((record) => {
+      const subcounty =
+        record.subcounty_name || "Unknown";
+
+      if (!grouped.has(subcounty)) {
+        grouped.set(subcounty, {
+          subcounty,
+          claims: 0,
+          reimbursements: 0,
+          rejections: 0,
+        });
+      }
+
+      const row = grouped.get(subcounty)!;
+
+      row.claims += Number(
+        record.claims || 0
+      );
+
+      row.reimbursements += Number(
+        record.reimbursements || 0
+      );
+
+      row.rejections += Number(
+        record.rejections || 0
+      );
+    });
+
+    return Array.from(grouped.values()).sort(
+      (a, b) =>
+        b.claims - a.claims
+    );
+  }, [filteredRecords]);
+
+  function closePreview() {
+    if (previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(previewUrl);
     }
 
-    const reimbursedPercent = Number(((reimbursed / total) * 100).toFixed(1));
-    const rejectedPercent = Number(((rejected / total) * 100).toFixed(1));
+    setPreviewUrl("");
+    setPreviewType("");
+    setPreviewName("");
+  }
 
-    return [
-      { name: "Reimbursed", value: reimbursedPercent },
-      { name: "Rejected", value: rejectedPercent },
-    ];
-  }, [summary.reimbursements, summary.rejections]);
+  async function openDocument(
+    document: SHADocument
+  ) {
+    try {
+      closePreview();
 
-  function getDocumentUrl(path: string) {
-    if (!path) return "";
+      const response = await api.get(
+        document.url,
+        {
+          responseType: "blob",
+        }
+      );
 
-    if (path.startsWith("http://") || path.startsWith("https://")) {
-      return path;
+      const contentType = String(
+        response.headers["content-type"] ||
+          document.content_type ||
+          "application/pdf"
+      );
+
+      const blob = new Blob(
+        [response.data],
+        {
+          type: contentType,
+        }
+      );
+
+      setPreviewUrl(
+        URL.createObjectURL(blob)
+      );
+
+      setPreviewType(contentType);
+      setPreviewName(document.name);
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        "Unable to open SHA supporting evidence."
+      );
     }
-
-    const baseUrl = (
-      import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
-    ).replace(/\/$/, "");
-
-    const documentPath = path.startsWith("/") ? path : `/${path}`;
-
-    return `${baseUrl}${documentPath}`;
-  }
-
-  function openDocument(path: string, reportTitle: string) {
-    setSelectedDocument(path);
-    setSelectedDocumentTitle(reportTitle);
-  }
-
-  function closeDocument() {
-    setSelectedDocument(null);
-    setSelectedDocumentTitle("");
   }
 
   function downloadCSV() {
     const headers = [
-      "Report Type",
-      "Frequency",
-      "Year",
-      "Month",
+      "Facility",
+      "MFL Code",
+      "Subcounty",
+      "Ward",
+      "Financial Year",
       "Quarter",
-      "Period",
-      "Value",
-      "Submitted By",
-      "Submitted At",
-      "Notes",
-      "Document",
+      "Claims",
+      "Reimbursements",
+      "Rejections",
     ];
 
-    const rows = filteredReports.map((report) => [
-      report.report_type,
-      report.frequency,
-      report.reporting_year,
-      report.reporting_month,
-      report.reporting_quarter,
-      report.reporting_period,
-      report.value,
-      report.submitted_by,
-      report.submitted_at,
-      report.notes,
-      report.supporting_document,
-    ]);
+    const rows = filteredRecords.map(
+      (record) => [
+        record.facility_name,
+        record.mfl_code,
+        record.subcounty_name,
+        record.ward_name,
+        record.financial_year,
+        record.reporting_quarter,
+        record.claims,
+        record.reimbursements,
+        record.rejections,
+      ]
+    );
 
     const csv = [headers, ...rows]
       .map((row) =>
         row
-          .map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`)
+          .map(
+            (cell) =>
+              `"${String(
+                cell ?? ""
+              ).replace(/"/g, '""')}"`
+          )
           .join(",")
       )
       .join("\n");
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = window.URL.createObjectURL(blob);
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
 
-    const link = document.createElement("a");
+    const url =
+      window.URL.createObjectURL(blob);
+
+    const link =
+      document.createElement("a");
+
     link.href = url;
-    link.download = "sha_reports.csv";
+    link.download =
+      "facility_sha_performance.csv";
+
     link.click();
 
     window.URL.revokeObjectURL(url);
@@ -459,374 +520,465 @@ function SHAPerformance() {
 
   if (loading) {
     return (
-      <div className="sha-performance-page">Loading SHA performance...</div>
+      <div className="sha-performance-page">
+        Loading SHA performance...
+      </div>
     );
   }
 
   return (
-    <div className="sha-performance-page">
-      <div className="sha-performance-header">
-        <div>
-          <h2>SHA Performance</h2>
-          <p>
-            County-level SHA claims, reimbursements, rejections and contracted
-            facility reporting.
-          </p>
-        </div>
-      </div>
-
-      <div className="sha-kpi-grid">
-        <div className="sha-kpi-card">
+    <>
+      <div className="sha-performance-page">
+        <div className="sha-performance-header">
           <div>
-            <span>SHA Contracted Facilities</span>
-            <strong>{summary.contractedFacilities.toLocaleString()}</strong>
+            <h2>SHA Performance</h2>
+
             <p>
-              {summary.contractedPeriod === "No data yet"
-                ? "No quarterly submission yet"
-                : `Latest: ${summary.contractedPeriod}`}
+              County visibility of quarterly
+              facility SHA claims,
+              reimbursements and rejections.
             </p>
           </div>
-          <div className="sha-kpi-icon">
-            <Building2 size={24} />
-          </div>
-        </div>
 
-        <div className="sha-kpi-card">
-          <div>
-            <span>SHA Claims</span>
-            <strong>{money(summary.claims)}</strong>
-            <p>
-              {summary.claimsPeriod === "No data yet"
-                ? "No monthly submission yet"
-                : `Latest: ${summary.claimsPeriod}`}
-            </p>
-          </div>
-          <div className="sha-kpi-icon">
-            <BarChart3 size={24} />
-          </div>
-        </div>
-
-        <div className="sha-kpi-card">
-          <div>
-            <span>SHA Reimbursements</span>
-            <strong>{money(summary.reimbursements)}</strong>
-            <p>
-              {summary.reimbursementsPeriod === "No data yet"
-                ? "No monthly submission yet"
-                : `Latest: ${summary.reimbursementsPeriod}`}
-            </p>
-          </div>
-          <div className="sha-kpi-icon success">
-            <CheckCircle size={24} />
-          </div>
-        </div>
-
-        <div className="sha-kpi-card">
-          <div>
-            <span>SHA Rejections</span>
-            <strong>{money(summary.rejections)}</strong>
-            <p>
-              {summary.rejectionsPeriod === "No data yet"
-                ? "No monthly submission yet"
-                : `Latest: ${summary.rejectionsPeriod}`}
-            </p>
-          </div>
-          <div className="sha-kpi-icon danger">
-            <XCircle size={24} />
-          </div>
-        </div>
-      </div>
-
-      <div className="sha-chart-card wide">
-        <h3>Monthly SHA Financial Trend</h3>
-        {monthlyTrend.length > 0 ? (
-          <ResponsiveContainer width="100%" height={330}>
-            <LineChart data={monthlyTrend}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis tickFormatter={(value) => compactMoney(Number(value))} />
-              <Tooltip formatter={(value) => money(Number(value))} />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="claims"
-                name="Claims"
-                stroke="#2563eb"
-              />
-              <Line
-                type="monotone"
-                dataKey="reimbursements"
-                name="Reimbursements"
-                stroke="#16a34a"
-              />
-              <Line
-                type="monotone"
-                dataKey="rejections"
-                name="Rejections"
-                stroke="#dc2626"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="sha-empty-chart">
-            No monthly SHA financial submissions yet.
-          </div>
-        )}
-      </div>
-
-      <div className="sha-analysis-grid">
-        <div className="sha-chart-card">
-          <h3>Claims vs Reimbursements</h3>
-          {monthlyTrend.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={monthlyTrend}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis tickFormatter={(value) => compactMoney(Number(value))} />
-                <Tooltip formatter={(value) => money(Number(value))} />
-                <Legend />
-                <Bar
-                  dataKey="claims"
-                  name="Claims"
-                  fill="#2563eb"
-                  radius={[8, 8, 0, 0]}
-                />
-                <Bar
-                  dataKey="reimbursements"
-                  name="Reimbursements"
-                  fill="#16a34a"
-                  radius={[8, 8, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="sha-empty-chart">No monthly submissions yet.</div>
-          )}
-        </div>
-
-        <div className="sha-chart-card">
-          <h3>Rejection Rate</h3>
-          {summary.reimbursements > 0 || summary.rejections > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={rejectionPie}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={95}
-                  label={({ name, value }) => `${name}: ${value}%`}
-                >
-                  <Cell fill="#16a34a" />
-                  <Cell fill="#dc2626" />
-                </Pie>
-                <Tooltip formatter={(value) => `${value}%`} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="sha-empty-chart">
-              No reimbursement or rejection submissions yet.
-            </div>
-          )}
-        </div>
-
-        <div className="sha-chart-card">
-          <h3>Contracted Facilities Trend</h3>
-          {contractedTrend.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={contractedTrend}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="quarter" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="facilities"
-                  name="Contracted Facilities"
-                  stroke="#7c3aed"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="sha-empty-chart">
-              No contracted-facility submissions yet.
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="sha-report-section">
-        <div className="sha-report-title">
-          <div>
-            <h3>Uploaded SHA Reports</h3>
-            <p>Report history from county SHA submissions.</p>
-          </div>
-
-          <button className="sha-download-btn" onClick={downloadCSV}>
-            <Download size={16} />
-            Download Table
+          <button
+            className="sha-download-button"
+            type="button"
+            onClick={downloadCSV}
+          >
+            <Download size={18} />
+            Export CSV
           </button>
         </div>
 
-        <div className="sha-filters">
+        <div className="sha-performance-filters">
           <MultiCheckboxFilter
-            label="Report Type"
-            options={reportTypes}
-            selected={selectedReportType}
-            onChange={setSelectedReportType}
-          />
-
-          <MultiCheckboxFilter
-            label="Year"
-            options={years.filter((year) => year !== "All")}
-            selected={selectedYear}
-            onChange={setSelectedYear}
-          />
-
-          <MultiCheckboxFilter
-            label="Month"
-            options={months}
-            selected={selectedMonth}
-            onChange={setSelectedMonth}
+            label="Financial Year"
+            options={financialYears.filter(
+              (item) => item !== "All"
+            )}
+            selected={
+              selectedFinancialYear
+            }
+            onChange={
+              setSelectedFinancialYear
+            }
           />
 
           <MultiCheckboxFilter
             label="Quarter"
-            options={quarters}
+            options={QUARTERS}
             selected={selectedQuarter}
             onChange={setSelectedQuarter}
           />
 
           <MultiCheckboxFilter
-            label="Submitted By"
-            options={submittedByOptions.filter((name) => name !== "All")}
-            selected={selectedSubmittedBy}
-            onChange={setSelectedSubmittedBy}
+            label="Subcounty"
+            options={subcounties.filter(
+              (item) => item !== "All"
+            )}
+            selected={selectedSubcounty}
+            onChange={(values) => {
+              setSelectedSubcounty(values);
+              setSelectedFacility(["All"]);
+            }}
+          />
+
+          <MultiCheckboxFilter
+            label="Facility"
+            options={facilityOptions.filter(
+              (item) => item !== "All"
+            )}
+            selected={selectedFacility}
+            onChange={setSelectedFacility}
           />
 
           <div className="sha-search">
             <label>Search</label>
+
             <div>
-              <Search size={16} />
+              <Search size={17} />
+
               <input
                 type="text"
-                placeholder="Search reports, notes or submitted by"
+                placeholder="Facility, MFL, ward..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(event) =>
+                  setSearch(
+                    event.target.value
+                  )
+                }
               />
             </div>
           </div>
         </div>
 
-        <div className="sha-table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Report Type</th>
-                <th>Frequency</th>
-                <th>Period</th>
-                <th>Value</th>
-                <th>Submitted By</th>
-                <th>Submitted At</th>
-                <th>Notes</th>
-                <th>Document</th>
-              </tr>
-            </thead>
+        <div className="sha-performance-kpis">
+          <div className="sha-performance-kpi">
+            <div>
+              <span>Total SHA Claims</span>
+              <strong>
+                {money(
+                  summary.totalClaims
+                )}
+              </strong>
+              <small>
+                Filtered facility submissions
+              </small>
+            </div>
 
-            <tbody>
-              {filteredReports.map((report, index) => (
-                <tr key={`${report.report_id}-${index}`}>
-                  <td>{report.report_type}</td>
-                  <td>{report.frequency}</td>
-                  <td>{report.reporting_period}</td>
-                  <td>
-                    {report.report_type === "SHA Contracted Facilities"
-                      ? Number(report.value || 0).toLocaleString()
-                      : money(Number(report.value || 0))}
-                  </td>
-                  <td>{report.submitted_by || "—"}</td>
-                  <td>{report.submitted_at || "—"}</td>
-                  <td>{report.notes || "—"}</td>
-                  <td>
-                    {report.supporting_document ? (
-                      <button
-                        type="button"
-                        className="sha-view-btn"
-                        onClick={() =>
-                          openDocument(
-                            report.supporting_document,
-                            `${report.report_type} — ${report.reporting_period}`
-                          )
-                        }
-                      >
-                        <FileText size={15} />
-                        View
-                      </button>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                </tr>
-              ))}
+            <BarChart3 size={24} />
+          </div>
 
-              {filteredReports.length === 0 && (
-                <tr>
-                  <td colSpan={8}>No SHA reports uploaded yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <div className="sha-performance-kpi">
+            <div>
+              <span>
+                Total Reimbursements
+              </span>
+
+              <strong>
+                {money(
+                  summary.totalReimbursements
+                )}
+              </strong>
+
+              <small>
+                {summary.reimbursementRate}%
+                of claims
+              </small>
+            </div>
+
+            <Wallet size={24} />
+          </div>
+
+          <div className="sha-performance-kpi">
+            <div>
+              <span>Total Rejections</span>
+
+              <strong>
+                {money(
+                  summary.totalRejections
+                )}
+              </strong>
+
+              <small>
+                {summary.rejectionRate}% of
+                claims
+              </small>
+            </div>
+
+            <FileText size={24} />
+          </div>
+
+          <div className="sha-performance-kpi">
+            <div>
+              <span>
+                Facilities Submitted
+              </span>
+
+              <strong>
+                {
+                  summary.facilitiesSubmitted
+                }
+              </strong>
+
+              <small>
+                Facilities represented in
+                current filter
+              </small>
+            </div>
+
+            <Building2 size={24} />
+          </div>
         </div>
 
-        <p className="sha-table-footer">
-          Showing {filteredReports.length} uploaded SHA report(s).
-        </p>
+        <div className="sha-performance-chart-grid">
+          <div className="sha-performance-chart-card">
+            <h3>
+              Quarterly SHA Financial Trend
+            </h3>
+
+            <ResponsiveContainer
+              width="100%"
+              height={330}
+            >
+              <LineChart
+                data={quarterlyTrend}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                />
+
+                <XAxis
+                  dataKey="period"
+                />
+
+                <YAxis
+                  tickFormatter={
+                    compactMoney
+                  }
+                />
+
+                <Tooltip
+                  formatter={(value) =>
+                    money(Number(value))
+                  }
+                />
+
+                <Legend />
+
+                <Line
+                  type="monotone"
+                  dataKey="claims"
+                  name="Claims"
+                />
+
+                <Line
+                  type="monotone"
+                  dataKey="reimbursements"
+                  name="Reimbursements"
+                />
+
+                <Line
+                  type="monotone"
+                  dataKey="rejections"
+                  name="Rejections"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="sha-performance-chart-card">
+            <h3>
+              SHA Performance by Subcounty
+            </h3>
+
+            <ResponsiveContainer
+              width="100%"
+              height={330}
+            >
+              <BarChart
+                data={subcountyData}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                />
+
+                <XAxis
+                  dataKey="subcounty"
+                />
+
+                <YAxis
+                  tickFormatter={
+                    compactMoney
+                  }
+                />
+
+                <Tooltip
+                  formatter={(value) =>
+                    money(Number(value))
+                  }
+                />
+
+                <Legend />
+
+                <Bar
+                  dataKey="claims"
+                  name="Claims"
+                />
+
+                <Bar
+                  dataKey="reimbursements"
+                  name="Reimbursements"
+                />
+
+                <Bar
+                  dataKey="rejections"
+                  name="Rejections"
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="sha-performance-table-card">
+          <div className="sha-table-heading">
+            <div>
+              <h3>
+                Facility SHA Submissions
+              </h3>
+
+              <p>
+                {filteredRecords.length}{" "}
+                quarterly submission
+                {filteredRecords.length === 1
+                  ? ""
+                  : "s"}
+              </p>
+            </div>
+          </div>
+
+          <div className="sha-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Facility</th>
+                  <th>MFL</th>
+                  <th>Subcounty</th>
+                  <th>Financial Year</th>
+                  <th>Quarter</th>
+                  <th>Claims</th>
+                  <th>Reimbursements</th>
+                  <th>Rejections</th>
+                  <th>Evidence</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredRecords.map(
+                  (record) => (
+                    <tr
+                      key={`${record.mfl_code}-${record.reporting_period}`}
+                    >
+                      <td>
+                        {record.facility_name ||
+                          "—"}
+                      </td>
+
+                      <td>
+                        {record.mfl_code}
+                      </td>
+
+                      <td>
+                        {record.subcounty_name ||
+                          "—"}
+                      </td>
+
+                      <td>
+                        {record.financial_year}
+                      </td>
+
+                      <td>
+                        {
+                          record.reporting_quarter
+                        }
+                      </td>
+
+                      <td>
+                        {money(record.claims)}
+                      </td>
+
+                      <td>
+                        {money(
+                          record.reimbursements
+                        )}
+                      </td>
+
+                      <td>
+                        {money(
+                          record.rejections
+                        )}
+                      </td>
+
+                      <td>
+                        {record
+                          .supporting_documents
+                          ?.length ? (
+                          <div className="sha-evidence-list">
+                            {record.supporting_documents.map(
+                              (
+                                document
+                              ) => (
+                                <button
+                                  key={
+                                    document.id
+                                  }
+                                  type="button"
+                                  onClick={() =>
+                                    openDocument(
+                                      document
+                                    )
+                                  }
+                                >
+                                  <FileText
+                                    size={
+                                      15
+                                    }
+                                  />
+                                  {
+                                    document.name
+                                  }
+                                </button>
+                              )
+                            )}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  )
+                )}
+
+                {filteredRecords.length ===
+                  0 && (
+                  <tr>
+                    <td
+                      colSpan={9}
+                      className="sha-empty"
+                    >
+                      No facility SHA data
+                      matches the selected
+                      filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
-      {selectedDocument && (
-        <div className="sha-document-modal-overlay" onClick={closeDocument}>
+      {previewUrl && (
+        <div
+          className="sha-preview-overlay"
+          onClick={closePreview}
+        >
           <div
-            className="sha-document-modal"
-            onClick={(event) => event.stopPropagation()}
+            className="sha-preview-modal"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
           >
-            <div className="sha-document-modal-header">
-              <div>
-                <h3>Supporting Document</h3>
-                <p>{selectedDocumentTitle}</p>
-              </div>
+            <div className="sha-preview-header">
+              <strong>
+                {previewName}
+              </strong>
 
               <button
                 type="button"
-                className="sha-document-close-btn"
-                onClick={closeDocument}
-                aria-label="Close document preview"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="sha-document-modal-body">
-              <iframe
-                src={getDocumentUrl(selectedDocument)}
-                title={selectedDocumentTitle || "SHA supporting document"}
-              />
-            </div>
-
-            <div className="sha-document-modal-footer">
-              <button
-                type="button"
-                className="sha-document-close-footer-btn"
-                onClick={closeDocument}
+                onClick={closePreview}
               >
                 Close
               </button>
             </div>
+
+            {previewType.startsWith(
+              "image/"
+            ) ? (
+              <img
+                src={previewUrl}
+                alt={previewName}
+              />
+            ) : (
+              <iframe
+                src={previewUrl}
+                title={previewName}
+              />
+            )}
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

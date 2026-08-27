@@ -1,0 +1,39 @@
+.facility-sha-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.facility-sha-page-header {
+  background: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    #f8fafc 100%
+  );
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 24px 26px;
+}
+
+.facility-sha-eyebrow {
+  display: inline-block;
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #2563eb;
+}
+
+.facility-sha-page-header h2 {
+  margin: 0 0 7px;
+  font-size: 26px;
+  color: #0f172a;
+}
+
+.facility-sha-page-header p {
+  margin: 0;
+  max-width: 700px;
+  color: #64748b;
+  line-height: 1.6;
+}

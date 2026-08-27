@@ -13,6 +13,7 @@ from models import (
     HPTRecord,
     HPTRecordDocument,
     SHAReport,
+    SHAReportDocument,
     SupportingDocument,
     User,
 )
@@ -97,6 +98,21 @@ SHA_DOCUMENT_CONTENT_TYPES = {
 }
 
 
+ALLOWED_FACILITY_SHA_DOCUMENT_EXTENSIONS = {
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+}
+
+FACILITY_SHA_DOCUMENT_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+}
+
+
 def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = (
         df.columns.astype(str)
@@ -168,6 +184,38 @@ def parse_reporting_period_sort(value):
 
     if not text:
         return pd.NaT
+
+    parts = text.split()
+
+    if (
+        len(parts) == 2
+        and "/" in parts[0]
+        and parts[1].upper() in {"Q1", "Q2", "Q3", "Q4"}
+    ):
+        years = parts[0].split("/")
+
+        if (
+            len(years) == 2
+            and years[0].isdigit()
+            and years[1].isdigit()
+        ):
+            start_year = int(years[0])
+            end_year = int(years[1])
+            quarter = parts[1].upper()
+
+            quarter_dates = {
+                "Q1": (start_year, 7),
+                "Q2": (start_year, 10),
+                "Q3": (end_year, 1),
+                "Q4": (end_year, 4),
+            }
+
+            year, month = quarter_dates[quarter]
+            return pd.Timestamp(
+                year=year,
+                month=month,
+                day=1,
+            )
 
     accepted_formats = [
         "%Y-%m",
@@ -258,6 +306,8 @@ def load_hpt_records(db: Session) -> pd.DataFrame:
         "submitter_phone",
         "submission_date",
         "reporting_period",
+        "financial_year",
+        "reporting_quarter",
         "review_status",
         "review_reason",
         "reviewed_by",
@@ -353,6 +403,12 @@ def load_hpt_records(db: Session) -> pd.DataFrame:
                 ),
                 "reporting_period": (
                     record.reporting_period or ""
+                ),
+                "financial_year": (
+                    record.financial_year or ""
+                ),
+                "reporting_quarter": (
+                    record.reporting_quarter or ""
                 ),
                 "review_status": (
                     record.review_status or "Pending"
@@ -752,6 +808,8 @@ def county_dashboard(
             "subcounty_name",
             "ward_name",
             "reporting_period",
+            "financial_year",
+            "reporting_quarter",
             "funding_source",
         ],
         dropna=False,
@@ -933,6 +991,583 @@ def ensure_sha_file():
             SHA_FILE,
             index=False,
         )
+
+
+
+@app.get("/facility-sha-reports")
+def get_facility_sha_reports(
+    current_user: User = Depends(
+        require_roles("facility")
+    ),
+    db: Session = Depends(get_db),
+):
+    mfl_code = normalize_mfl_code(
+        current_user.facility_mfl_code
+    )
+
+    if not mfl_code:
+        raise HTTPException(
+            status_code=400,
+            detail="No facility is linked to this account.",
+        )
+
+    reports = (
+        db.query(SHAReport)
+        .filter(
+            SHAReport.mfl_code == mfl_code,
+            SHAReport.report_type.in_(
+                {
+                    "SHA Claims",
+                    "SHA Reimbursements",
+                    "SHA Rejections",
+                }
+            ),
+        )
+        .order_by(
+            SHAReport.reporting_year.asc(),
+            SHAReport.report_id.asc(),
+        )
+        .all()
+    )
+
+    results = []
+
+    for report in reports:
+        linked_documents = (
+            db.query(SupportingDocument)
+            .join(
+                SHAReportDocument,
+                SHAReportDocument.document_id
+                == SupportingDocument.id,
+            )
+            .filter(
+                SHAReportDocument.report_id
+                == report.report_id
+            )
+            .order_by(
+                SupportingDocument.id.asc()
+            )
+            .all()
+        )
+
+        supporting_documents = [
+            {
+                "id": document.id,
+                "name": document.original_filename,
+                "url": f"/documents/{document.id}",
+                "content_type": document.content_type,
+            }
+            for document in linked_documents
+        ]
+
+        # Legacy fallback
+        if (
+            not supporting_documents
+            and report.supporting_document_id
+        ):
+            legacy_document = (
+                db.query(SupportingDocument)
+                .filter(
+                    SupportingDocument.id
+                    == report.supporting_document_id
+                )
+                .first()
+            )
+
+            if legacy_document:
+                supporting_documents = [
+                    {
+                        "id": legacy_document.id,
+                        "name": legacy_document.original_filename,
+                        "url": (
+                            f"/documents/{legacy_document.id}"
+                        ),
+                        "content_type": (
+                            legacy_document.content_type
+                        ),
+                    }
+                ]
+
+        results.append(
+            {
+                "report_id": str(report.report_id),
+                "mfl_code": report.mfl_code or "",
+                "report_type": report.report_type or "",
+                "reporting_year": (
+                    report.reporting_year or ""
+                ),
+                "reporting_month": (
+                    report.reporting_month or ""
+                ),
+                "reporting_period": (
+                    report.reporting_period or ""
+                ),
+                "value": float(report.value or 0),
+                "submitted_by": (
+                    report.submitted_by or ""
+                ),
+                "notes": report.notes or "",
+                "supporting_documents": (
+                    supporting_documents
+                ),
+                "submitted_at": (
+                    format_database_datetime(
+                        report.submitted_at
+                    )
+                ),
+            }
+        )
+
+    return results
+
+
+@app.post("/facility-sha-reports")
+async def submit_facility_sha_report(
+    financial_year: str = Form(...),
+    reporting_quarter: str = Form(...),
+    claims_amount: float = Form(0),
+    reimbursements_amount: float = Form(0),
+    rejections_amount: float = Form(0),
+    notes: str = Form(""),
+    supporting_documents: list[UploadFile] | None = File(None),
+    current_user: User = Depends(
+        require_roles("facility")
+    ),
+    db: Session = Depends(get_db),
+):
+    normalized_financial_year = normalize_financial_year(
+        financial_year
+    )
+
+    normalized_quarter = normalize_reporting_quarter(
+        reporting_quarter
+    )
+
+    amounts = {
+        "SHA Claims": claims_amount,
+        "SHA Reimbursements": reimbursements_amount,
+        "SHA Rejections": rejections_amount,
+    }
+
+    for report_type, amount in amounts.items():
+        if amount < 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{report_type} amount cannot be negative.",
+            )
+
+    mfl_code = normalize_mfl_code(
+        current_user.facility_mfl_code
+    )
+
+    if not mfl_code:
+        raise HTTPException(
+            status_code=400,
+            detail="No facility is linked to this account.",
+        )
+
+    reporting_period = (
+        f"{normalized_financial_year} "
+        f"{normalized_quarter}"
+    )
+
+    existing_reports = (
+        db.query(SHAReport)
+        .filter(
+            SHAReport.mfl_code == mfl_code,
+            SHAReport.report_type.in_(amounts.keys()),
+            SHAReport.reporting_period == reporting_period,
+        )
+        .all()
+    )
+
+    if existing_reports:
+        existing_types = ", ".join(
+            sorted(
+                report.report_type
+                for report in existing_reports
+            )
+        )
+
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "SHA data has already been submitted "
+                f"for {reporting_period}: {existing_types}."
+            ),
+        )
+
+    uploader_name = (
+        f"{current_user.first_name or ''} "
+        f"{current_user.last_name or ''}"
+    ).strip()
+
+    try:
+        document_ids = []
+
+        for uploaded_file in (
+            supporting_documents or []
+        ):
+            if not uploaded_file.filename:
+                continue
+
+            original_filename = (
+                uploaded_file.filename.strip()
+            )
+
+            file_extension = Path(
+                original_filename
+            ).suffix.lower()
+
+            if (
+                file_extension
+                not in
+                ALLOWED_FACILITY_SHA_DOCUMENT_EXTENSIONS
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "SHA evidence files must be "
+                        "PDF, JPG, JPEG or PNG."
+                    ),
+                )
+
+            file_bytes = await uploaded_file.read()
+
+            if not file_bytes:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"{original_filename} is empty."
+                    ),
+                )
+
+            if len(file_bytes) > MAX_DOCUMENT_SIZE:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"{original_filename} exceeds "
+                        "the 10 MB limit."
+                    ),
+                )
+
+            stored_content_type = (
+                uploaded_file.content_type
+                or FACILITY_SHA_DOCUMENT_CONTENT_TYPES[
+                    file_extension
+                ]
+            )
+
+            document = SupportingDocument(
+                original_filename=original_filename,
+                content_type=stored_content_type,
+                file_size=len(file_bytes),
+                file_data=file_bytes,
+                uploaded_by=(
+                    uploader_name
+                    or current_user.email
+                ),
+            )
+
+            db.add(document)
+            db.flush()
+
+            document_ids.append(document.id)
+
+        created_reports = []
+
+        start_year = normalized_financial_year.split("/")[0]
+
+        for report_type, amount in amounts.items():
+            report = SHAReport(
+                mfl_code=mfl_code,
+                report_type=report_type,
+                frequency="Quarterly",
+                reporting_year=start_year,
+                financial_year=normalized_financial_year,
+                reporting_month="",
+                reporting_quarter=normalized_quarter,
+                reporting_period=reporting_period,
+                value=amount,
+                submitted_by=(
+                    uploader_name
+                    or current_user.email
+                ),
+                notes=notes.strip(),
+                supporting_document_id=(
+                    document_ids[0]
+                    if document_ids
+                    else None
+                ),
+            )
+
+            db.add(report)
+            db.flush()
+
+            for document_id in document_ids:
+                db.add(
+                    SHAReportDocument(
+                        report_id=report.report_id,
+                        document_id=document_id,
+                    )
+                )
+
+            created_reports.append(report)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": (
+                "Quarterly facility SHA data "
+                "submitted successfully."
+            ),
+            "financial_year": normalized_financial_year,
+            "reporting_quarter": normalized_quarter,
+            "reporting_period": reporting_period,
+            "claims_amount": float(claims_amount),
+            "reimbursements_amount": float(
+                reimbursements_amount
+            ),
+            "rejections_amount": float(
+                rejections_amount
+            ),
+            "documents_count": len(document_ids),
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception as exc:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save facility SHA data.",
+        ) from exc
+
+
+
+@app.get("/sha-performance/facilities")
+def get_facility_sha_performance(
+    current_user: User = Depends(
+        require_roles("county", "admin")
+    ),
+    db: Session = Depends(get_db),
+):
+    report_types = {
+        "SHA Claims",
+        "SHA Reimbursements",
+        "SHA Rejections",
+    }
+
+    reports = (
+        db.query(SHAReport)
+        .filter(
+            SHAReport.mfl_code.isnot(None),
+            SHAReport.report_type.in_(report_types),
+        )
+        .order_by(
+            SHAReport.report_id.asc()
+        )
+        .all()
+    )
+
+    facilities_df = load_facilities()
+
+    facility_lookup = {}
+
+    for _, facility in facilities_df.iterrows():
+        mfl_code = normalize_mfl_code(
+            facility.get("mfl_code", "")
+        )
+
+        if not mfl_code:
+            continue
+
+        facility_lookup[mfl_code] = {
+            "facility_name": str(
+                facility.get(
+                    "facility_name",
+                    ""
+                ) or ""
+            ),
+            "subcounty_name": str(
+                facility.get(
+                    "subcounty_name",
+                    ""
+                ) or ""
+            ),
+            "ward_name": str(
+                facility.get(
+                    "ward_name",
+                    ""
+                ) or ""
+            ),
+        }
+
+    grouped = {}
+
+    for report in reports:
+        mfl_code = normalize_mfl_code(
+            report.mfl_code
+        )
+
+        financial_year = str(
+            report.financial_year or ""
+        ).strip()
+
+        reporting_quarter = str(
+            report.reporting_quarter or ""
+        ).strip()
+
+        reporting_period = str(
+            report.reporting_period or ""
+        ).strip()
+
+        key = (
+            mfl_code,
+            financial_year,
+            reporting_quarter,
+            reporting_period,
+        )
+
+        if key not in grouped:
+            facility_info = facility_lookup.get(
+                mfl_code,
+                {},
+            )
+
+            grouped[key] = {
+                "mfl_code": mfl_code,
+                "facility_name": (
+                    facility_info.get(
+                        "facility_name",
+                        ""
+                    )
+                ),
+                "subcounty_name": (
+                    facility_info.get(
+                        "subcounty_name",
+                        ""
+                    )
+                ),
+                "ward_name": (
+                    facility_info.get(
+                        "ward_name",
+                        ""
+                    )
+                ),
+                "financial_year": financial_year,
+                "reporting_quarter": reporting_quarter,
+                "reporting_period": reporting_period,
+                "claims": 0.0,
+                "reimbursements": 0.0,
+                "rejections": 0.0,
+                "supporting_documents": [],
+                "_document_ids": set(),
+            }
+
+        row = grouped[key]
+
+        value = float(report.value or 0)
+
+        if report.report_type == "SHA Claims":
+            row["claims"] = value
+
+        elif report.report_type == "SHA Reimbursements":
+            row["reimbursements"] = value
+
+        elif report.report_type == "SHA Rejections":
+            row["rejections"] = value
+
+        linked_documents = (
+            db.query(SupportingDocument)
+            .join(
+                SHAReportDocument,
+                SHAReportDocument.document_id
+                == SupportingDocument.id,
+            )
+            .filter(
+                SHAReportDocument.report_id
+                == report.report_id
+            )
+            .all()
+        )
+
+        if (
+            not linked_documents
+            and report.supporting_document_id
+        ):
+            legacy_document = (
+                db.query(SupportingDocument)
+                .filter(
+                    SupportingDocument.id
+                    == report.supporting_document_id
+                )
+                .first()
+            )
+
+            if legacy_document:
+                linked_documents = [
+                    legacy_document
+                ]
+
+        for document in linked_documents:
+            if document.id in row["_document_ids"]:
+                continue
+
+            row["_document_ids"].add(
+                document.id
+            )
+
+            row[
+                "supporting_documents"
+            ].append(
+                {
+                    "id": document.id,
+                    "name": (
+                        document.original_filename
+                    ),
+                    "url": (
+                        f"/documents/{document.id}"
+                    ),
+                    "content_type": (
+                        document.content_type
+                    ),
+                }
+            )
+
+    records = []
+
+    for row in grouped.values():
+        row.pop("_document_ids", None)
+        records.append(row)
+
+    quarter_order = {
+        "Q1": 1,
+        "Q2": 2,
+        "Q3": 3,
+        "Q4": 4,
+    }
+
+    records.sort(
+        key=lambda row: (
+            row["financial_year"],
+            quarter_order.get(
+                row["reporting_quarter"],
+                0,
+            ),
+            row["facility_name"],
+        )
+    )
+
+    return {
+        "records": records,
+        "count": len(records),
+    }
+
 
 @app.post("/county-sha-reports")
 async def submit_county_sha_report(
@@ -1471,6 +2106,38 @@ def view_supporting_document(
             normalize_mfl_code(row[0]) == user_mfl
             for row in linked_facilities
         )
+
+        # Also allow access to SHA evidence
+        # submitted by this facility.
+        if not has_access:
+            sha_linked_facilities = (
+                db.query(SHAReport.mfl_code)
+                .join(
+                    SHAReportDocument,
+                    SHAReportDocument.report_id
+                    == SHAReport.report_id,
+                )
+                .filter(
+                    SHAReportDocument.document_id
+                    == document_id
+                )
+                .all()
+            )
+
+            if not sha_linked_facilities:
+                sha_linked_facilities = (
+                    db.query(SHAReport.mfl_code)
+                    .filter(
+                        SHAReport.supporting_document_id
+                        == document_id
+                    )
+                    .all()
+                )
+
+            has_access = any(
+                normalize_mfl_code(row[0]) == user_mfl
+                for row in sha_linked_facilities
+            )
 
         if not has_access:
             raise HTTPException(

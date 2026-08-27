@@ -29,6 +29,7 @@ function Sidebar() {
 if (role === "facility") {
   menuItems.push(
     { label: "Data Collection", path: "/data-collection", icon: ClipboardList },
+    { label: "SHA Reporting", path: "/facility-sha-reporting", icon: BarChart3 },
     { label: "Facility Trends", path: "/facilities", icon: Building2 }
   );
 }
