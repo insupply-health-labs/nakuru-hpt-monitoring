@@ -362,12 +362,48 @@ const [reviewSaving, setReviewSaving] = useState(false);
     (record) => record.supporting_document
   ).length;
 
-  function openDocument(path: string) {
-    const baseUrl =
-      import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-    const documentPath = path.startsWith("/") ? path : `/${path}`;
+  async function openDocument(path: string) {
+    try {
+      if (selectedDocumentUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(selectedDocumentUrl);
+      }
 
-    setSelectedDocumentUrl(`${baseUrl}${documentPath}`);
+      const documentPath = path.startsWith("/")
+        ? path
+        : `/${path}`;
+
+      const response = await api.get(
+        documentPath,
+        {
+          responseType: "blob",
+        }
+      );
+
+      const contentType = String(
+        response.headers["content-type"] ||
+        "application/pdf"
+      );
+
+      const blob = new Blob(
+        [response.data],
+        {
+          type: contentType,
+        }
+      );
+
+      setSelectedDocumentUrl(
+        URL.createObjectURL(blob)
+      );
+    } catch (error) {
+      console.error(
+        "Unable to open supporting document:",
+        error
+      );
+
+      alert(
+        "Unable to open supporting document."
+      );
+    }
   }
 
   function closeRejectModal() {
