@@ -1,17 +1,26 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import hashlib
+import json
+import logging
+import os
+import secrets
+from urllib import request as urllib_request
+from urllib import error as urllib_error
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 
 from database import get_db
-from models import User
+from models import PasswordResetToken, User
 from security import create_access_token, get_current_user, require_roles
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+logger = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
@@ -30,6 +39,120 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+
+def send_password_reset_email(
+    recipient_email: str,
+    reset_url: str,
+    recipient_name: str,
+) -> None:
+    api_key = os.getenv(
+        "BREVO_API_KEY",
+        "",
+    ).strip()
+
+    sender_email = os.getenv(
+        "EMAIL_FROM",
+        "",
+    ).strip()
+
+    sender_name = os.getenv(
+        "EMAIL_FROM_NAME",
+        "Nakuru County FIMS",
+    ).strip()
+
+    if not api_key:
+        raise RuntimeError(
+            "BREVO_API_KEY is not configured."
+        )
+
+    if not sender_email:
+        raise RuntimeError(
+            "EMAIL_FROM is not configured."
+        )
+
+    payload = {
+        "sender": {
+            "name": sender_name,
+            "email": sender_email,
+        },
+        "to": [
+            {
+                "email": recipient_email,
+            }
+        ],
+        "subject": (
+            "Reset your Nakuru County FIMS password"
+        ),
+        "textContent": f"""
+Hello {recipient_name},
+
+We received a request to reset the password for your Nakuru County Financial Information Monitoring System (FIMS) account.
+
+Use the link below to create a new password:
+
+{reset_url}
+
+This password reset link expires in 30 minutes and can only be used once.
+
+If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.
+
+For your security, do not share this password reset link with anyone.
+
+Regards,
+
+Nakuru County Health Department
+Financial Information Monitoring System (FIMS)
+""",
+    }
+
+    data = json.dumps(payload).encode("utf-8")
+
+    req = urllib_request.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=data,
+        headers={
+            "accept": "application/json",
+            "api-key": api_key,
+            "content-type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib_request.urlopen(
+            req,
+            timeout=15,
+        ) as response:
+            if response.status not in (200, 201, 202):
+                raise RuntimeError(
+                    f"Brevo returned status {response.status}"
+                )
+
+    except urllib_error.HTTPError as error:
+        body = error.read().decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        raise RuntimeError(
+            f"Brevo error {error.code}: {body}"
+        ) from error
+
+    except urllib_error.URLError as error:
+        raise RuntimeError(
+            f"Unable to connect to Brevo: {error}"
+        ) from error
 
 
 def hash_password(password: str):
@@ -146,6 +269,248 @@ def register_user(payload: RegisterRequest, db: Session = Depends(get_db)):
             "is_active": new_user.is_active,
         },
     }
+
+@router.post("/forgot-password")
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    generic_response = {
+        "success": True,
+        "message": (
+            "If an account exists for that email, "
+            "a password reset link has been sent."
+        ),
+    }
+
+    email = payload.email.lower().strip()
+
+    user = (
+        db.query(User)
+        .filter(User.email == email)
+        .first()
+    )
+
+    if not user or not user.is_active:
+        return generic_response
+
+    now = datetime.now(timezone.utc)
+
+    # Invalidate any previous unused reset tokens.
+    (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.user_id
+            == user.user_id,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .update(
+            {"used_at": now},
+            synchronize_session=False,
+        )
+    )
+
+    raw_token = secrets.token_urlsafe(32)
+
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    try:
+        expiry_minutes = int(
+            os.getenv(
+                "PASSWORD_RESET_EXPIRY_MINUTES",
+                "30",
+            )
+        )
+    except ValueError:
+        expiry_minutes = 30
+
+    reset_token = PasswordResetToken(
+        user_id=user.user_id,
+        token_hash=token_hash,
+        expires_at=(
+            now
+            + timedelta(
+                minutes=expiry_minutes
+            )
+        ),
+    )
+
+    db.add(reset_token)
+    db.commit()
+
+    frontend_url = os.getenv(
+        "FRONTEND_URL",
+        "http://localhost:5174",
+    ).rstrip("/")
+
+    reset_url = (
+        f"{frontend_url}"
+        f"/reset-password"
+        f"?token={raw_token}"
+    )
+
+    email_sent = False
+    email_error = ""
+
+    try:
+        send_password_reset_email(
+            user.email,
+            reset_url,
+            user.first_name,
+        )
+        email_sent = True
+
+    except Exception as error:
+        logger.exception(
+            "Password reset email failed "
+            "for user_id=%s",
+            user.user_id,
+        )
+
+        email_error = str(error)
+
+    debug_enabled = (
+        os.getenv(
+            "PASSWORD_RESET_DEBUG",
+            "false",
+        )
+        .strip()
+        .lower()
+        in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+    )
+
+    if debug_enabled:
+        return {
+            **generic_response,
+            "reset_url": reset_url,
+            "email_sent": email_sent,
+            "email_error": email_error,
+        }
+
+    return generic_response
+
+
+@router.post("/reset-password")
+def reset_password(
+    payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    raw_token = payload.token.strip()
+    new_password = payload.new_password
+
+    if not raw_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Reset token is required.",
+        )
+
+    if len(new_password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Password must be at least "
+                "8 characters long."
+            ),
+        )
+
+    token_hash = hashlib.sha256(
+        raw_token.encode("utf-8")
+    ).hexdigest()
+
+    reset_token = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.token_hash
+            == token_hash,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .first()
+    )
+
+    if not reset_token:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This password reset link is "
+                "invalid or has already been used."
+            ),
+        )
+
+    now = datetime.now(timezone.utc)
+
+    expires_at = reset_token.expires_at
+
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(
+            tzinfo=timezone.utc
+        )
+
+    if expires_at <= now:
+        reset_token.used_at = now
+        db.commit()
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This password reset link has expired. "
+                "Please request a new one."
+            ),
+        )
+
+    user = (
+        db.query(User)
+        .filter(
+            User.user_id
+            == reset_token.user_id
+        )
+        .first()
+    )
+
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This password reset link "
+                "is no longer valid."
+            ),
+        )
+
+    user.password_hash = hash_password(
+        new_password
+    )
+
+    # Invalidate every outstanding reset token
+    # belonging to this user.
+    (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.user_id
+            == user.user_id,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .update(
+            {"used_at": now},
+            synchronize_session=False,
+        )
+    )
+
+    db.commit()
+
+    return {
+        "success": True,
+        "message": (
+            "Password reset successfully. "
+            "You can now sign in with your new password."
+        ),
+    }
+
 
 @router.post("/login")
 def login_user(

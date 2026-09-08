@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import DataCollection from "./pages/DataCollection";
 import MainLayout from "./components/layout/MainLayout";
 import Submissions from "./pages/Submissions";
@@ -30,6 +32,14 @@ function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/" element={<Navigate to="/login" />} />
         <Route path="/login" element={<Login />} />
+        <Route
+          path="/forgot-password"
+          element={<ForgotPassword />}
+        />
+        <Route
+          path="/reset-password"
+          element={<ResetPassword />}
+        />
 
         <Route element={<MainLayout />}>
           <Route
