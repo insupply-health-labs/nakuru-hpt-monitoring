@@ -598,3 +598,118 @@ select:focus {
     height: 92vh;
   }
 }
+
+/* ========================================
+   DATA COLLECTION - MOBILE TABLE FIX
+   ======================================== */
+
+@media (max-width: 900px) {
+  .collection-page {
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+  }
+
+  .collection-card {
+    width: 100%;
+    min-width: 0;
+    padding: 12px;
+    overflow: hidden;
+  }
+
+  .form-grid {
+    padding: 12px;
+  }
+
+  .form-group,
+  .form-group input,
+  .form-group select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .funding-layout,
+  .two-column-section {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .data-table {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 8px 6px;
+    font-size: 11px;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+
+  .data-table td:first-child {
+    white-space: normal !important;
+  }
+
+  /* Funding Sources */
+  .funding-layout .data-table th:first-child,
+  .funding-layout .data-table td:first-child {
+    width: 48%;
+  }
+
+  .funding-layout .data-table th:nth-child(2),
+  .funding-layout .data-table td:nth-child(2) {
+    width: 52%;
+  }
+
+  .funding-layout .data-table td:nth-child(2) input,
+  .funding-layout .data-table td input[type="text"],
+  .funding-detail-input {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* HPT Category Breakdown */
+  .two-column-section .data-table {
+    table-layout: fixed;
+  }
+
+  .two-column-section .data-table th:first-child,
+  .two-column-section .data-table td:first-child {
+    width: 40%;
+  }
+
+  .two-column-section .data-table th:nth-child(2),
+  .two-column-section .data-table td:nth-child(2),
+  .two-column-section .data-table th:nth-child(3),
+  .two-column-section .data-table td:nth-child(3) {
+    width: 30%;
+  }
+
+  .two-column-section .data-table td input[type="text"],
+  .hpt-category-breakdown input {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  .summary-panel,
+  .hpt-summary,
+  .two-column-section > div {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .summary-panel strong,
+  .hpt-summary strong {
+    font-size: 18px;
+  }
+
+  .helper-text {
+    overflow-wrap: anywhere;
+  }
+}

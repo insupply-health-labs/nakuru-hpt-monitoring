@@ -7,11 +7,20 @@ import {
   LogOut,
   BarChart3,
   Users,
+  X,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import "./Layout.css";
 
-function Sidebar() {
+type SidebarProps = {
+  mobileOpen: boolean;
+  onClose: () => void;
+};
+
+function Sidebar({
+  mobileOpen,
+  onClose,
+}: SidebarProps) {
   const navigate = useNavigate();
 
   const user = JSON.parse(sessionStorage.getItem("hpt_user") || "{}");
@@ -70,7 +79,21 @@ if (role === "admin") {
     `${user?.first_name?.[0] || ""}${user?.last_name?.[0] || ""}`.toUpperCase();
 
   return (
-    <aside className="sidebar">
+    <aside
+      className={
+        mobileOpen
+          ? "sidebar mobile-open"
+          : "sidebar"
+      }
+    >
+      <button
+        type="button"
+        className="sidebar-close-btn"
+        onClick={onClose}
+        aria-label="Close menu"
+      >
+        <X size={24} />
+      </button>
       <div className="sidebar-brand">
         <img src="/assets/nakuru-logo.png" alt="Nakuru County" />
         <div>
@@ -91,6 +114,7 @@ Financial Information Monitoring System</p>
               className={({ isActive }) =>
                 isActive ? "sidebar-link active" : "sidebar-link"
               }
+              onClick={onClose}
             >
               <Icon size={19} />
               <span>{item.label}</span>

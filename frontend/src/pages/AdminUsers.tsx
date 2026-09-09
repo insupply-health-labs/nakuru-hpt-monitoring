@@ -18,6 +18,36 @@ type User = {
 function AdminUsers() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const USERS_PER_PAGE = 15;
+
+  const normalizedSearch = searchTerm.trim().toLowerCase();
+
+  const filteredUsers = users.filter((user) => {
+    const fullName = `${user.first_name} ${user.last_name}`.toLowerCase();
+    const email = user.email.toLowerCase();
+
+    return (
+      fullName.includes(normalizedSearch) ||
+      email.includes(normalizedSearch)
+    );
+  });
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredUsers.length / USERS_PER_PAGE)
+  );
+
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const startIndex = (safeCurrentPage - 1) * USERS_PER_PAGE;
+
+  const paginatedUsers = filteredUsers.slice(
+    startIndex,
+    startIndex + USERS_PER_PAGE
+  );
 
   async function loadUsers() {
     try {
@@ -35,6 +65,10 @@ function AdminUsers() {
   useEffect(() => {
     loadUsers();
   }, []);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   async function approveUser(userId: number) {
     await api.put(`/auth/users/${userId}/approve`);
@@ -79,6 +113,20 @@ function AdminUsers() {
         </button>
       </div>
 
+      <div className="admin-users-toolbar">
+        <input
+          type="search"
+          className="admin-users-search"
+          placeholder="Search by name or email..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+
+        <span className="admin-users-count">
+          {filteredUsers.length} user{filteredUsers.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
       <div className="admin-users-card">
         <table className="admin-users-table">
           <thead>
@@ -95,7 +143,7 @@ function AdminUsers() {
           </thead>
 
           <tbody>
-            {users.map((user) => (
+            {paginatedUsers.map((user) => (
               <tr key={user.user_id}>
                 <td>
                   {user.first_name} {user.last_name}
@@ -181,7 +229,7 @@ function AdminUsers() {
               </tr>
             ))}
 
-            {users.length === 0 && (
+            {filteredUsers.length === 0 && (
               <tr>
                 <td colSpan={8} className="empty-state">
                   No users found.
@@ -191,6 +239,46 @@ function AdminUsers() {
           </tbody>
         </table>
       </div>
+
+      {filteredUsers.length > 0 && (
+        <div className="admin-users-pagination">
+          <div className="pagination-summary">
+            Showing {startIndex + 1}–
+            {Math.min(
+              startIndex + USERS_PER_PAGE,
+              filteredUsers.length
+            )} of {filteredUsers.length}
+          </div>
+
+          <div className="pagination-controls">
+            <button
+              type="button"
+              onClick={() =>
+                setCurrentPage((page) => Math.max(1, page - 1))
+              }
+              disabled={safeCurrentPage === 1}
+            >
+              Previous
+            </button>
+
+            <span>
+              Page {safeCurrentPage} of {totalPages}
+            </span>
+
+            <button
+              type="button"
+              onClick={() =>
+                setCurrentPage((page) =>
+                  Math.min(totalPages, page + 1)
+                )
+              }
+              disabled={safeCurrentPage === totalPages}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
