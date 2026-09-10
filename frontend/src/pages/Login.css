@@ -206,3 +206,153 @@ footer {
   color: #475569;
   font-size: 14px;
 }
+/* ========================================
+   LOGIN / REGISTER - MOBILE
+   ======================================== */
+
+@media (max-width: 900px) {
+  .login-page {
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .login-overlay {
+    width: 100%;
+    min-width: 0;
+    padding: 18px 14px 24px;
+  }
+
+  .login-header {
+    margin-bottom: 20px;
+  }
+
+  .county-logo {
+    width: 82px;
+    margin-bottom: 10px;
+  }
+
+  .login-header h1 {
+    font-size: 34px;
+    line-height: 1.1;
+    letter-spacing: 0.5px;
+  }
+
+  .login-header h2 {
+    font-size: 17px;
+    line-height: 1.35;
+    letter-spacing: 1px;
+    padding: 0 6px;
+  }
+
+  .login-header p {
+    font-size: 14px;
+  }
+
+  .login-content {
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    margin-top: 12px;
+  }
+
+  .login-card {
+    width: 100%;
+    max-width: 520px;
+    min-width: 0;
+    padding: 24px 18px;
+    border-radius: 16px;
+  }
+
+  .login-card h3 {
+    font-size: 28px;
+  }
+
+  .subtitle {
+    font-size: 16px;
+    line-height: 1.4;
+    margin-bottom: 20px;
+  }
+
+  .input-group {
+    width: 100%;
+    min-width: 0;
+    height: 54px;
+    padding: 0 12px;
+  }
+
+  .input-group input,
+  .input-group select {
+    width: 100%;
+    min-width: 0;
+    font-size: 16px;
+    margin-left: 10px;
+  }
+
+  .sign-in-btn {
+    height: 54px;
+    font-size: 18px;
+  }
+
+  .create-account-btn {
+    width: 100%;
+    max-width: 260px;
+    font-size: 16px;
+  }
+
+  .info-card {
+    width: 100%;
+    max-width: 520px;
+    padding: 20px;
+  }
+
+  .info-card h3 {
+    font-size: 19px;
+  }
+
+  .info-item {
+    gap: 12px;
+    margin: 18px 0;
+  }
+
+  .info-item h4 {
+    font-size: 16px;
+  }
+
+  .info-item p {
+    font-size: 14px;
+  }
+
+  footer {
+    padding: 0 10px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-overlay {
+    padding: 14px 10px 20px;
+  }
+
+  .login-header h1 {
+    font-size: 29px;
+  }
+
+  .login-header h2 {
+    font-size: 15px;
+  }
+
+  .login-card {
+    padding: 22px 14px;
+  }
+
+  .login-card h3 {
+    font-size: 25px;
+  }
+
+  .info-card {
+    padding: 16px;
+  }
+}
