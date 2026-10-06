@@ -13,6 +13,7 @@ def send_email(
     text_content: str,
     recipient_name: str = "",
     cc_emails: list[str] | None = None,
+    html_content: str = "",
 ) -> None:
     api_key = os.getenv("BREVO_API_KEY", "").strip()
     sender_email = os.getenv("EMAIL_FROM", "").strip()
@@ -54,6 +55,9 @@ def send_email(
         "subject": subject,
         "textContent": text_content,
     }
+
+    if html_content.strip():
+        payload["htmlContent"] = html_content
 
     valid_cc = [
         email.strip()
