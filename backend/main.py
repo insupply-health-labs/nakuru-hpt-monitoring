@@ -282,6 +282,9 @@ def normalize_reporting_quarter(value: str) -> str:
 def load_hpt_records(db: Session) -> pd.DataFrame:
     records = (
         db.query(HPTRecord)
+        .filter(
+            HPTRecord.is_archived.is_(False)
+        )
         .order_by(
             HPTRecord.submission_date.asc(),
             HPTRecord.record_id.asc(),
@@ -651,6 +654,9 @@ def get_county_sha_reports(
 ):
     reports = (
         db.query(SHAReport)
+        .filter(
+            SHAReport.is_archived.is_(False)
+        )
         .order_by(
             SHAReport.submitted_at.desc(),
             SHAReport.report_id.desc(),
@@ -1014,6 +1020,7 @@ def get_facility_sha_reports(
     reports = (
         db.query(SHAReport)
         .filter(
+            SHAReport.is_archived.is_(False),
             SHAReport.mfl_code == mfl_code,
             SHAReport.report_type.in_(
                 {
@@ -1174,6 +1181,7 @@ async def submit_facility_sha_report(
     existing_reports = (
         db.query(SHAReport)
         .filter(
+            SHAReport.is_archived.is_(False),
             SHAReport.mfl_code == mfl_code,
             SHAReport.report_type.in_(amounts.keys()),
             SHAReport.reporting_period == reporting_period,
@@ -1365,6 +1373,7 @@ def get_facility_sha_performance(
     reports = (
         db.query(SHAReport)
         .filter(
+            SHAReport.is_archived.is_(False),
             SHAReport.mfl_code.isnot(None),
             SHAReport.report_type.in_(report_types),
         )
@@ -1856,6 +1865,7 @@ async def submit_record(
     existing_record = (
         db.query(HPTRecord)
         .filter(
+            HPTRecord.is_archived.is_(False),
             HPTRecord.mfl_code == normalized_mfl,
             HPTRecord.financial_year
             == normalized_financial_year,
@@ -2192,6 +2202,7 @@ def review_submission(
     record = (
         db.query(HPTRecord)
         .filter(
+            HPTRecord.is_archived.is_(False),
             HPTRecord.mfl_code == normalized_mfl,
             HPTRecord.reporting_period == normalized_period,
         )

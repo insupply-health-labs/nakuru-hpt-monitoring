@@ -96,6 +96,7 @@ def main():
             hpt_exists = (
                 db.query(HPTRecord)
                 .filter(
+                    HPTRecord.is_archived.is_(False),
                     HPTRecord.mfl_code == mfl_code,
                     HPTRecord.financial_year
                     == args.financial_year,
@@ -109,6 +110,7 @@ def main():
             sha_rows = (
                 db.query(SHAReport)
                 .filter(
+                    SHAReport.is_archived.is_(False),
                     SHAReport.mfl_code == mfl_code,
                     SHAReport.financial_year
                     == args.financial_year,

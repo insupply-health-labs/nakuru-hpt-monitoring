@@ -1,3 +1,4 @@
+from sqlalchemy import Boolean, DateTime
 from sqlalchemy import (
     Boolean,
     Column,
@@ -176,6 +177,17 @@ class HPTRecord(Base):
         nullable=True,
     )
 
+    is_archived = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+
+    archived_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     amount_received = Column(
         Float,
         nullable=False,
@@ -322,6 +334,17 @@ class SHAReport(Base):
         String(50),
         nullable=False,
         index=True,
+    )
+
+    is_archived = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+
+    archived_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     value = Column(
